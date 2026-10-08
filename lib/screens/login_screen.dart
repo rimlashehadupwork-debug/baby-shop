@@ -1,3 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
@@ -38,15 +41,66 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoading = true;
       });
 
-      // Simulate API authentication delay
-      await Future.delayed(const Duration(milliseconds: 1000));
+      try {
+        final emailInput = _emailController.text.trim();
+        UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: emailInput,
+          password: _passwordController.text,
+        );
 
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        // Navigate to Home placeholder on success
-        Navigator.pushReplacementNamed(context, '/home');
+        final user = userCredential.user;
+        if (user != null) {
+          DataSnapshot snapshot = await FirebaseDatabase.instanceFor(
+            app: Firebase.app(),
+            databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+          ).ref('users/${user.uid}').get();
+
+          String role = 'user';
+          if (snapshot.exists && snapshot.value != null) {
+            final data = Map<String, dynamic>.from(snapshot.value as Map);
+            role = data['role']?.toString() ?? 'user';
+          }
+
+          final bool isAdmin = role == 'admin' || emailInput.toLowerCase() == 'admin@gmail.com';
+
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+
+            if (isAdmin) {
+              Navigator.pushReplacementNamed(context, '/admin');
+            } else {
+              Navigator.pushReplacementNamed(context, '/home');
+            }
+          }
+        }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = e.message ?? 'Authentication failed.';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message ?? 'Authentication failed.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = e.toString();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Connection error: ${e.toString()}'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
       }
     }
   }
@@ -154,7 +208,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (value == null || value.trim().isEmpty) {
                         return 'Email is required';
                       }
-                      final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                      final emailRegex = RegExp(r'^[\w.-]+@([\w-]+\.)+[\w-]{2,4}$');
                       if (!emailRegex.hasMatch(value.trim())) {
                         return 'Please enter a valid email address';
                       }

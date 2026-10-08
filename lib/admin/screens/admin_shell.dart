@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_logo.dart';
@@ -30,11 +31,12 @@ class _AdminShellState extends State<AdminShell> {
   @override
   void initState() {
     super.initState();
-    // Simple guard: direct visits without logging in go back to Admin Login.
-    if (!AdminAuthService.instance.isLoggedIn) {
+    // Guard: direct visits without logging in go back to Login.
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null && !AdminAuthService.instance.isLoggedIn) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/admin-login');
+          Navigator.pushReplacementNamed(context, '/login');
         }
       });
     }
@@ -50,7 +52,10 @@ class _AdminShellState extends State<AdminShell> {
     );
     if (!confirmed || !mounted) return;
     AdminAuthService.instance.logout();
-    Navigator.of(context).pushNamedAndRemoveUntil('/admin-login', (route) => false);
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+    }
   }
 
   @override

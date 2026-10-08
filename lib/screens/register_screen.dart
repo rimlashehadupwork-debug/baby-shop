@@ -1,3 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
@@ -34,32 +37,107 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _isLoading = true;
       });
 
-      // Simulate API call delay
-      await Future.delayed(const Duration(milliseconds: 1000));
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-
-        // Show success snackbar and navigate back to Login screen
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(child: Text('Account created successfully! Please login.')),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 3),
-          ),
+      try {
+        // 1. Authenticate user with Firebase Auth
+        final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
         );
 
-        Navigator.pushReplacementNamed(context, '/login');
+        final user = userCredential.user;
+        if (user != null) {
+          final String uid = user.uid;
+          final String email = _emailController.text.trim();
+          final String name = _fullNameController.text.trim();
+
+          // Determine role: assign 'admin' if email contains 'admin', else default to 'user'
+          final String role = email.toLowerCase().contains('admin') ? 'admin' : 'user';
+
+          // 2 & 3. Write profile data to Firebase Realtime Database
+          try {
+            await FirebaseDatabase.instanceFor(
+              app: Firebase.app(),
+              databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+            ).ref('users/$uid').set({
+              'uid': uid,
+              'name': name,
+              'email': email,
+              'role': role,
+              'deliveryAddresses': '',
+              'paymentMethods': '',
+              'createdAt': DateTime.now().toIso8601String(),
+            });
+          } catch (dbError) {
+            debugPrint('Firebase Realtime Database Error: $dbError');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Database error: ${dbError.toString()}'),
+                  backgroundColor: AppColors.error,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              );
+            }
+            rethrow;
+          }
+
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Account created successfully!')),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+
+            if (role == 'admin') {
+              Navigator.pushReplacementNamed(context, '/admin');
+            } else {
+              Navigator.pushReplacementNamed(context, '/home');
+            }
+          }
+        }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message ?? 'Registration failed.'),
+              backgroundColor: AppColors.error,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('An error occurred: ${e.toString()}'),
+              backgroundColor: AppColors.error,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
       }
     }
   }
@@ -142,7 +220,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       if (value == null || value.trim().isEmpty) {
                         return 'Email is required';
                       }
-                      final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+
+
+                      final emailRegex = RegExp(r'^[\w.-]+@([\w-]+\.)+[\w-]{2,4}$');
                       if (!emailRegex.hasMatch(value.trim())) {
                         return 'Please enter a valid email address';
                       }

@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
@@ -14,10 +15,19 @@ import 'screens/add_edit_address_screen.dart';
 import 'screens/payment_methods_screen.dart';
 import 'screens/help_support_screen.dart';
 import 'screens/feedback_screen.dart';
-import 'admin/screens/admin_login_screen.dart';
-import 'admin/screens/admin_shell.dart';
 
-void main() {
+import 'admin/screens/admin_shell.dart';
+import 'firebase_options.dart';
+import 'package:firebase_database/firebase_database.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  FirebaseDatabase.instance.databaseURL = 'https://firebaseio.com';
   runApp(const BabyShopHubApp());
 }
 
@@ -30,7 +40,7 @@ class BabyShopHubApp extends StatelessWidget {
       title: 'BabyShopHub',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      initialRoute: '/admin-login', 
+      initialRoute: '/',
       routes: {
         '/': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
@@ -48,7 +58,7 @@ class BabyShopHubApp extends StatelessWidget {
         '/feedback': (context) => const FeedbackScreen(),
 
         // Admin panel routes
-        '/admin-login': (context) => const AdminLoginScreen(),
+
         '/admin': (context) => const AdminShell(),
       },
     );
