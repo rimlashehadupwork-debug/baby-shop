@@ -1,5 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../services/delivery_info.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_logo.dart';
 import '../services/admin_auth_service.dart';
@@ -9,8 +9,6 @@ import 'admin_orders_screen.dart';
 import 'admin_products_screen.dart';
 import 'admin_users_screen.dart';
 
-/// Admin Panel container: header, profile/logout menu and admin navigation.
-/// Completely separate from the customer bottom navigation.
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
 
@@ -31,9 +29,8 @@ class _AdminShellState extends State<AdminShell> {
   @override
   void initState() {
     super.initState();
-    // Guard: direct visits without logging in go back to Login.
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null && !AdminAuthService.instance.isLoggedIn) {
+    DeliveryInfo.instance.load();
+    if (!AdminAuthService.instance.isLoggedIn) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.pushReplacementNamed(context, '/login');
@@ -51,8 +48,7 @@ class _AdminShellState extends State<AdminShell> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    AdminAuthService.instance.logout();
-    await FirebaseAuth.instance.signOut();
+    await AdminAuthService.instance.logout();
     if (mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
     }
@@ -66,6 +62,16 @@ class _AdminShellState extends State<AdminShell> {
       const AdminUsersScreen(),
       const AdminOrdersScreen(),
     ];
+
+    return ListenableBuilder(
+      listenable: DeliveryInfo.instance,
+      builder: (context, _) => _buildScaffold(pages),
+    );
+  }
+
+  Widget _buildScaffold(List<Widget> pages) {
+    final adminName = AdminAuthService.instance.name;
+    final adminEmail = AdminAuthService.instance.email;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -117,21 +123,21 @@ class _AdminShellState extends State<AdminShell> {
               if (value == 'logout') _logout();
             },
             itemBuilder: (context) => [
-              const PopupMenuItem<String>(
+              PopupMenuItem<String>(
                 enabled: false,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      AdminAuthService.adminName,
-                      style: TextStyle(
+                      adminName,
+                      style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         color: AppColors.primaryText,
                       ),
                     ),
                     Text(
-                      AdminAuthService.adminEmail,
-                      style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                      adminEmail,
+                      style: const TextStyle(fontSize: 12, color: AppColors.secondaryText),
                     ),
                   ],
                 ),
@@ -154,7 +160,7 @@ class _AdminShellState extends State<AdminShell> {
                 radius: 19,
                 backgroundColor: AppColors.softBlue,
                 child: Text(
-                  initialsOf(AdminAuthService.adminName),
+                  initialsOf(adminName),
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
                     color: AppColors.primaryBlue,

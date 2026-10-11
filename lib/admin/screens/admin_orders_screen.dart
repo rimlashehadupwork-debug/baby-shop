@@ -13,68 +13,64 @@ class AdminOrdersScreen extends StatefulWidget {
 }
 
 class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
-  OrderStatus? _filter; // null = all orders
+  OrderStatus? _filter;
 
   @override
   Widget build(BuildContext context) {
-    return AdminLoader(
-      load: adminSimulatedLoad,
-      skeletonHeight: 130,
-      builder: (context) => ValueListenableBuilder<List<OrderModel>>(
-        valueListenable: OrderService.instance.ordersNotifier,
-        builder: (context, all, _) {
-          final orders =
-              _filter == null ? all : all.where((o) => o.status == _filter).toList();
+    return ValueListenableBuilder<List<OrderModel>>(
+      valueListenable: OrderService.instance.ordersNotifier,
+      builder: (context, all, _) {
+        final orders =
+        _filter == null ? all : all.where((o) => o.status == _filter).toList();
 
-          return Column(
-            children: [
-              SizedBox(
-                height: 62,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-                  children: [
-                    _chip('All', null),
-                    for (final s in OrderStatus.values) _chip(s.displayName, s),
-                  ],
-                ),
+        return Column(
+          children: [
+            SizedBox(
+              height: 62,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+                children: [
+                  _chip('All', null),
+                  for (final s in OrderStatus.values) _chip(s.displayName, s),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${orders.length} ${orders.length == 1 ? 'order' : 'orders'}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.secondaryText,
-                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${orders.length} ${orders.length == 1 ? 'order' : 'orders'}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.secondaryText,
                   ),
                 ),
               ),
-              Expanded(
-                child: orders.isEmpty
-                    ? AdminEmptyState(
-                        icon: Icons.receipt_long_outlined,
-                        title: all.isEmpty ? 'No orders yet' : 'No orders in this status',
-                        message: all.isEmpty
-                            ? 'Customer orders will appear here once they are placed.'
-                            : 'Choose another status to see more orders.',
-                      )
-                    : ListView.separated(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                        itemCount: orders.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) => _buildItem(orders[index]),
-                      ),
+            ),
+            Expanded(
+              child: orders.isEmpty
+                  ? AdminEmptyState(
+                icon: Icons.receipt_long_outlined,
+                title: all.isEmpty ? 'No orders yet' : 'No orders in this status',
+                message: all.isEmpty
+                    ? 'Customer orders will appear here once they are placed.'
+                    : 'Choose another status to see more orders.',
+              )
+                  : ListView.separated(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                itemCount: orders.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                itemBuilder: (context, index) => _buildItem(orders[index]),
               ),
-            ],
-          );
-        },
-      ),
+            ),
+          ],
+        );
+      },
     );
   }
 

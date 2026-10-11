@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../models/product_model.dart';
 import '../../theme/app_theme.dart';
-import '../services/admin_product_service.dart';
+import '../services/firebase_supabase_service.dart';
 import '../widgets/admin_widgets.dart';
 import 'admin_product_form_screen.dart';
 
@@ -13,9 +12,21 @@ class AdminProductsScreen extends StatefulWidget {
 }
 
 class _AdminProductsScreenState extends State<AdminProductsScreen> {
-  final _service = AdminProductService.instance;
+  static const _table = 'products';
+
+  final _service = FirebaseSupabaseService();
   final _searchController = TextEditingController();
   String _query = '';
+
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _all = []; // har map mein 'id' bhi hai
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   void dispose() {
@@ -23,146 +34,229 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
     super.dispose();
   }
 
-  void _openForm([ProductModel? product]) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => AdminProductFormScreen(product: product)),
-    );
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
+    try {
+      final raw = await _service.read(tableName: _table);
+      final list = <Map<String, dynamic>>[];
+      if (raw is Map) {
+        raw.forEach((key, value) {
+          if (value is Map) {
+            list.add({...Map<String, dynamic>.from(value), 'id': key.toString()});
+          }
+        });
+      }
+      if (!mounted) return;
+      setState(() {
+        _all = list;
+        _error = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
   }
 
-  Future<void> _delete(ProductModel product) async {
+  Future<void> _openForm([Map<String, dynamic>? product]) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AdminProductFormScreen(product: product),
+      ),
+    );
+    if (changed == true && mounted) _load(silent: true);
+  }
+
+  Future<void> _delete(Map<String, dynamic> product) async {
     final confirmed = await showAdminConfirm(
       context,
       title: 'Delete product?',
-      message: '"${product.name}" will be removed from the catalog. This cannot be undone.',
+      message:
+      '"${product['name'] ?? ''}" will be removed from the catalog. This cannot be undone.',
       confirmLabel: 'Delete',
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    _service.deleteProduct(product.id);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Product deleted')));
+
+    try {
+      await _service.deleteById(tableName: _table, id: product['id']);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Product deleted')));
+      _load(silent: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
   }
 
-  List<ProductModel> _filter(List<ProductModel> all) {
+  List<Map<String, dynamic>> get _filtered {
     final terms = _query
         .toLowerCase()
         .split(RegExp(r'\s+'))
         .where((t) => t.isNotEmpty)
         .toList();
-    if (terms.isEmpty) return all;
-    return all.where((p) {
-      final haystack = '${p.name} ${p.brand} ${p.categoryName}'.toLowerCase();
+    if (terms.isEmpty) return _all;
+    return _all.where((p) {
+      final haystack =
+      '${p['name'] ?? ''} ${p['brand'] ?? ''} ${p['categoryName'] ?? ''}'
+          .toLowerCase();
       return terms.every(haystack.contains);
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AdminLoader(
-      load: adminSimulatedLoad,
-      builder: (context) => ValueListenableBuilder<List<ProductModel>>(
-        valueListenable: _service.productsNotifier,
-        builder: (context, all, _) {
-          final products = _filter(all);
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-          return Column(
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: InputDecoration(
-                    hintText: 'Search by name, brand or category...',
-                    prefixIcon: const Icon(Icons.search_rounded,
-                        color: AppColors.secondaryText),
-                    suffixIcon: _query.isNotEmpty
-                        ? IconButton(
-                            tooltip: 'Clear',
-                            icon: const Icon(Icons.close_rounded,
-                                size: 20, color: AppColors.secondaryText),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _query = '');
-                            },
-                          )
-                        : null,
+              const Icon(Icons.error_outline_rounded,
+                  size: 40, color: AppColors.error),
+              const SizedBox(height: 12),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.secondaryText)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                  onPressed: () => _load(), child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final products = _filtered;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _query = value),
+            decoration: InputDecoration(
+              hintText: 'Search by name, brand or category...',
+              prefixIcon: const Icon(Icons.search_rounded,
+                  color: AppColors.secondaryText),
+              suffixIcon: _query.isNotEmpty
+                  ? IconButton(
+                tooltip: 'Clear',
+                icon: const Icon(Icons.close_rounded,
+                    size: 20, color: AppColors.secondaryText),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              )
+                  : null,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${products.length} ${products.length == 1 ? 'product' : 'products'}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.secondaryText,
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${products.length} ${products.length == 1 ? 'product' : 'products'}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.secondaryText,
-                        ),
-                      ),
-                    ),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () => _openForm(),
-                      icon: const Icon(Icons.add_rounded, size: 20),
-                      label: const Text('Add Product'),
-                    ),
-                  ],
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-              ),
-              Expanded(
-                child: products.isEmpty
-                    ? AdminEmptyState(
-                        icon: Icons.inventory_2_outlined,
-                        title: all.isEmpty ? 'No products yet' : 'No products found',
-                        message: all.isEmpty
-                            ? 'Add your first product to start building the catalog.'
-                            : 'Try a different name, brand or category.',
-                        actionLabel: all.isEmpty ? 'Add Product' : null,
-                        onAction: all.isEmpty ? () => _openForm() : null,
-                      )
-                    : ListView.separated(
-                        physics: const BouncingScrollPhysics(),
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                        itemCount: products.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) =>
-                            _buildItem(products[index]),
-                      ),
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: const Text('Add Product'),
               ),
             ],
-          );
-        },
-      ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => _load(silent: true),
+            child: products.isEmpty
+                ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: 360,
+                  child: AdminEmptyState(
+                    icon: Icons.inventory_2_outlined,
+                    title: _all.isEmpty
+                        ? 'No products yet'
+                        : 'No products found',
+                    message: _all.isEmpty
+                        ? 'Add your first product to start building the catalog.'
+                        : 'Try a different name, brand or category.',
+                    actionLabel: _all.isEmpty ? 'Add Product' : null,
+                    onAction: _all.isEmpty ? () => _openForm() : null,
+                  ),
+                ),
+              ],
+            )
+                : ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics()),
+              keyboardDismissBehavior:
+              ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              itemCount: products.length,
+              separatorBuilder: (context, index) =>
+              const SizedBox(height: 12),
+              itemBuilder: (context, index) =>
+                  _buildItem(products[index]),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildItem(ProductModel product) {
-    final stock = _service.stockOf(product.id);
-    final status = _service.statusOf(product.id);
-    final statusColor = switch (status) {
-      StockStatus.inStock => AppColors.success,
-      StockStatus.lowStock => AppColors.warning,
-      StockStatus.outOfStock => AppColors.error,
-    };
-    final statusLabel = switch (status) {
-      StockStatus.inStock => 'In Stock',
-      StockStatus.lowStock => 'Low Stock',
-      StockStatus.outOfStock => 'Out of Stock',
-    };
+  Widget _buildItem(Map<String, dynamic> product) {
+    final name = (product['name'] ?? 'Unnamed').toString();
+    final brand = (product['brand'] ?? '').toString();
+    final category = (product['categoryName'] ?? '').toString();
+    final imageUrl = (product['imageUrl'] ?? '').toString();
+    final price = double.tryParse('${product['price'] ?? 0}') ?? 0;
+    final stock = int.tryParse('${product['stock'] ?? 0}') ?? 0;
+
+    final Color statusColor;
+    final String statusLabel;
+    if (stock <= 0) {
+      statusColor = AppColors.error;
+      statusLabel = 'Out of Stock';
+    } else if (stock <= 5) {
+      statusColor = AppColors.warning;
+      statusLabel = 'Low Stock';
+    } else {
+      statusColor = AppColors.success;
+      statusLabel = 'In Stock';
+    }
 
     return AdminCard(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
@@ -171,14 +265,14 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AdminThumb(url: product.imageUrl, size: 60),
+              AdminThumb(url: imageUrl, size: 60),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      product.name,
+                      name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -190,7 +284,7 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${product.brand}  •  ${product.categoryName}',
+                      '$brand  •  $category',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -207,7 +301,7 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
           Row(
             children: [
               Text(
-                formatMoney(product.price),
+                formatMoney(price),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,

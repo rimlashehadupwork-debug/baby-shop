@@ -55,10 +55,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
           // 2 & 3. Write profile data to Firebase Realtime Database
           try {
-            await FirebaseDatabase.instanceFor(
-              app: Firebase.app(),
-              databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
-            ).ref('users/$uid').set({
+            await FirebaseDatabase.instance.ref('users/$uid').set({
               'uid': uid,
               'name': name,
               'email': email,

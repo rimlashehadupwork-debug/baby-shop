@@ -50,10 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final user = userCredential.user;
         if (user != null) {
-          DataSnapshot snapshot = await FirebaseDatabase.instanceFor(
-            app: Firebase.app(),
-            databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
-          ).ref('users/${user.uid}').get();
+          DataSnapshot snapshot = await FirebaseDatabase.instance.ref('users/${user.uid}').get();
 
           String role = 'user';
           if (snapshot.exists && snapshot.value != null) {

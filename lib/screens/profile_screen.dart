@@ -1,8 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/delivery_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import 'feedback_screen.dart';
 import 'help_support_screen.dart';
+import 'order_history_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -12,8 +15,21 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String userName = 'Sarah Khan';
-  String userEmail = 'sarah@example.com';
+  final _info = DeliveryInfo.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _info.load();
+  }
+
+  String get _email => FirebaseAuth.instance.currentUser?.email ?? 'Guest account';
+
+  String get _name {
+    if (_info.name.trim().isNotEmpty) return _info.name;
+    final display = FirebaseAuth.instance.currentUser?.displayName ?? '';
+    return display.isNotEmpty ? display : 'Guest';
+  }
 
   void _showLogoutDialog() {
     showDialog(
@@ -76,9 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                    },
+                    onPressed: () => Navigator.of(dialogContext).pop(),
                     child: const Text(
                       'Cancel',
                       style: TextStyle(
@@ -100,13 +114,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    onPressed: () {
+                    onPressed: () async {
+                      final navigator = Navigator.of(context);
                       Navigator.of(dialogContext).pop();
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        '/login',
-                        (route) => false,
-                      );
+                      await FirebaseAuth.instance.signOut();
+                      navigator.pushNamedAndRemoveUntil('/login', (route) => false);
                     },
                     child: const Text(
                       'Logout',
@@ -147,9 +159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             padding: const EdgeInsets.only(right: 12.0),
             child: IconButton(
               icon: const Icon(Icons.notifications_none_rounded),
-              onPressed: () {
-                _showInfoSnackBar('Notifications feature coming soon');
-              },
+              onPressed: () => _showInfoSnackBar('Notifications feature coming soon'),
             ),
           ),
         ],
@@ -159,25 +169,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             children: [
-              // User Header Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primaryBlue.withValues(alpha: 0.06),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
+              ListenableBuilder(
+                listenable: _info,
+                builder: (context, _) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryBlue.withValues(alpha: 0.06),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    // Avatar Area
-                    Stack(
+                    child: Row(
                       children: [
                         Container(
                           width: 68,
@@ -205,65 +214,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primaryText,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _email,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.secondaryText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: AppColors.primaryBlue,
+                            size: 20,
+                          ),
+                          onPressed: () => Navigator.pushNamed(context, '/edit-profile'),
+                        ),
                       ],
                     ),
-                    const SizedBox(width: 16),
-                    // User Details
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            userName,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primaryText,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            userEmail,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.secondaryText,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Edit Quick Icon
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: AppColors.primaryBlue,
-                        size: 20,
-                      ),
-                      onPressed: () async {
-                        final result = await Navigator.pushNamed(context, '/edit-profile');
-                        if (result != null && result is Map<String, String>) {
-                          setState(() {
-                            if (result.containsKey('name')) userName = result['name']!;
-                            if (result.containsKey('email')) userEmail = result['email']!;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
-
-              // Small BabyShopHub Branding Strip
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
                   color: AppColors.accentBlue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
+                  children: [
                     BabyShopHubLogo(
                       iconSize: 20,
                       showText: false,
@@ -281,8 +282,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Profile Section Items Card
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
@@ -300,82 +299,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   clipBehavior: Clip.antiAlias,
                   child: Column(
                     children: [
-                    _buildMenuItem(
-                      icon: Icons.person_outline_rounded,
-                      title: 'Personal Information',
-                      subtitle: 'Name, email & phone number',
-                      onTap: () async {
-                        final result = await Navigator.pushNamed(context, '/edit-profile');
-                        if (result != null && result is Map<String, String>) {
-                          setState(() {
-                            if (result.containsKey('name')) userName = result['name']!;
-                            if (result.containsKey('email')) userEmail = result['email']!;
-                          });
-                        }
-                      },
-                    ),
-                    _buildDivider(),
-                    _buildMenuItem(
-                      icon: Icons.shopping_bag_outlined,
-                      title: 'My Orders',
-                      subtitle: 'Order history & active tracking',
-                      onTap: () {
-                        _showInfoSnackBar('Order history feature will be in the Orders module');
-                      },
-                    ),
-                    _buildDivider(),
-                    _buildMenuItem(
-                      icon: Icons.location_on_outlined,
-                      title: 'Delivery Addresses',
-                      subtitle: 'Manage saved delivery locations',
-                      onTap: () {
-                        Navigator.pushNamed(context, '/addresses');
-                      },
-                    ),
-                    _buildDivider(),
-                    _buildMenuItem(
-                      icon: Icons.payment_outlined,
-                      title: 'Payment Methods',
-                      subtitle: 'Saved cards & payment options',
-                      onTap: () {
-                        Navigator.pushNamed(context, '/payment-methods');
-                      },
-                    ),
-                    _buildDivider(),
-                    _buildMenuItem(
-                      icon: Icons.help_outline_rounded,
-                      title: 'Help & Support',
-                      subtitle: 'FAQs, contact care & support guide',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const HelpSupportScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildDivider(),
-                    _buildMenuItem(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      title: 'Feedback',
-                      subtitle: 'Share your shopping experience',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const FeedbackScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                      _buildMenuItem(
+                        icon: Icons.person_outline_rounded,
+                        title: 'Personal Information',
+                        subtitle: 'Name, email & phone number',
+                        onTap: () => Navigator.pushNamed(context, '/edit-profile'),
+                      ),
+                      _buildDivider(),
+                      _buildMenuItem(
+                        icon: Icons.shopping_bag_outlined,
+                        title: 'My Orders',
+                        subtitle: 'Order history & active tracking',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const OrderHistoryScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildDivider(),
+                      _buildMenuItem(
+                        icon: Icons.location_on_outlined,
+                        title: 'Delivery Address',
+                        subtitle: 'Manage your delivery location',
+                        onTap: () => Navigator.pushNamed(context, '/addresses'),
+                      ),
+                      _buildDivider(),
+                      _buildMenuItem(
+                        icon: Icons.payment_outlined,
+                        title: 'Payment Methods',
+                        subtitle: 'Saved cards & payment options',
+                        onTap: () => Navigator.pushNamed(context, '/payment-methods'),
+                      ),
+                      _buildDivider(),
+                      _buildMenuItem(
+                        icon: Icons.help_outline_rounded,
+                        title: 'Help & Support',
+                        subtitle: 'FAQs, contact care & support guide',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const HelpSupportScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildDivider(),
+                      _buildMenuItem(
+                        icon: Icons.chat_bubble_outline_rounded,
+                        title: 'Feedback',
+                        subtitle: 'Share your shopping experience',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const FeedbackScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
               const SizedBox(height: 28),
-
-              // Logout Button
               SizedBox(
                 width: double.infinity,
                 height: 52,

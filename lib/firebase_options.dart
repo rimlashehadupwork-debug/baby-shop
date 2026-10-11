@@ -46,10 +46,9 @@ class DefaultFirebaseOptions {
     messagingSenderId: '688118988830',
     projectId: 'babyshop-1bebd',
     authDomain: 'babyshop-1bebd.firebaseapp.com',
-    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com',
     storageBucket: 'babyshop-1bebd.firebasestorage.app',
     measurementId: 'G-8XJMFF0ZGD',
-
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -57,36 +56,28 @@ class DefaultFirebaseOptions {
     appId: '1:688118988830:android:c51b5ce2aab389735e6e0f',
     messagingSenderId: '688118988830',
     projectId: 'babyshop-1bebd',
-    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com',
     storageBucket: 'babyshop-1bebd.firebasestorage.app',
-
-
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDKmt_2QY-5TgAK_XIowKEe55OD4ir_EpU',
     appId: '1:688118988830:ios:a668d81a0939a5695e6e0f',
     messagingSenderId: '688118988830',
     projectId: 'babyshop-1bebd',
-    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com',
     storageBucket: 'babyshop-1bebd.firebasestorage.app',
     iosClientId: '688118988830-8eqskmn23c8mpfsl9doac31rfrjncdlk.apps.googleusercontent.com',
     iosBundleId: 'com.example.babyShopHub',
-
-
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyDKmt_2QY-5TgAK_XIowKEe55OD4ir_EpU',
     appId: '1:688118988830:ios:a668d81a0939a5695e6e0f',
     messagingSenderId: '688118988830',
     projectId: 'babyshop-1bebd',
-    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com',
     storageBucket: 'babyshop-1bebd.firebasestorage.app',
     iosClientId: '688118988830-8eqskmn23c8mpfsl9doac31rfrjncdlk.apps.googleusercontent.com',
     iosBundleId: 'com.example.babyShopHub',
-
-
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -95,10 +86,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '688118988830',
     projectId: 'babyshop-1bebd',
     authDomain: 'babyshop-1bebd.firebaseapp.com',
-    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com/',
+    databaseURL: 'https://babyshop-1bebd-default-rtdb.firebaseio.com',
     storageBucket: 'babyshop-1bebd.firebasestorage.app',
     measurementId: 'G-BG3RQLECXT',
-
-
   );
 }

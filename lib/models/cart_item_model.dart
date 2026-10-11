@@ -1,13 +1,20 @@
-import 'product_model.dart';
+import '../services/product_service.dart';
 
 class CartItemModel {
-  final ProductModel product;
-  int quantity;
+  final ProductMap product;
+  final int quantity;
 
-  CartItemModel({
+  const CartItemModel({
     required this.product,
-    this.quantity = 1,
+    required this.quantity,
   });
 
   double get totalPrice => product.price * quantity;
+
+  CartItemModel copyWith({int? quantity}) {
+    return CartItemModel(
+      product: product,
+      quantity: quantity ?? this.quantity,
+    );
+  }
 }

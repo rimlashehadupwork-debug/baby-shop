@@ -1,23 +1,28 @@
-/// Demo admin authentication (no backend in this project).
-/// Demo credentials:  admin@babyshophub.com  /  Admin@123
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/delivery_info.dart';
+
 class AdminAuthService {
-  static final AdminAuthService instance = AdminAuthService._internal();
-  AdminAuthService._internal();
+  AdminAuthService._();
 
-  static const String adminEmail = 'admin@babyshophub.com';
-  static const String _adminPassword = 'Admin@123';
-  static const String adminName = 'Admin';
+  static final AdminAuthService instance = AdminAuthService._();
 
-  bool _loggedIn = false;
-  bool get isLoggedIn => _loggedIn;
+  User? get _user => FirebaseAuth.instance.currentUser;
 
-  bool login(String email, String password) {
-    final ok = email.trim().toLowerCase() == adminEmail && password == _adminPassword;
-    _loggedIn = ok;
-    return ok;
+  bool get isLoggedIn => _user != null;
+
+  String get email => _user?.email ?? '';
+
+  String get name {
+    final saved = DeliveryInfo.instance.name.trim();
+    if (saved.isNotEmpty) return saved;
+    final display = (_user?.displayName ?? '').trim();
+    if (display.isNotEmpty) return display;
+    final mail = email;
+    if (mail.contains('@')) return mail.split('@').first;
+    return 'Admin';
   }
 
-  void logout() {
-    _loggedIn = false;
+  Future<void> logout() async {
+    await FirebaseAuth.instance.signOut();
   }
 }

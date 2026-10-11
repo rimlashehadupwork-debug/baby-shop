@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../models/order_model.dart';
+import '../services/order_service.dart';
 import '../theme/app_theme.dart';
 
 class OrderConfirmationScreen extends StatelessWidget {
@@ -13,6 +15,18 @@ class OrderConfirmationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final orders = OrderService.instance.orders;
+    final OrderModel? order = orders.isEmpty ? null : orders.first;
+
+    final orderId = order?.id ?? '-';
+    final orderDate = (order?.date ?? '').isEmpty ? '-' : order!.date;
+    final address = (order?.deliveryAddress ?? '').isEmpty
+        ? '-'
+        : order!.deliveryAddress;
+    final delivery = (order?.estimatedDelivery ?? '').isEmpty
+        ? '-'
+        : order!.estimatedDelivery;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -23,8 +37,6 @@ class OrderConfirmationScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-
-              // SUCCESS ICON ANIMATED BADGE
               Container(
                 width: 90,
                 height: 90,
@@ -41,8 +53,6 @@ class OrderConfirmationScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // ORDER PLACED HEADING
               const Text(
                 'Order Placed Successfully!',
                 style: TextStyle(
@@ -63,8 +73,6 @@ class OrderConfirmationScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 28),
-
-              // ORDER INFORMATION CARD
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -82,12 +90,12 @@ class OrderConfirmationScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    _buildInfoRow('Order ID', '#BSH-84920'),
+                    _buildInfoRow('Order ID', orderId),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 10.0),
                       child: Divider(height: 1, color: AppColors.border),
                     ),
-                    _buildInfoRow('Order Date', '12 Oct 2024'),
+                    _buildInfoRow('Order Date', orderDate),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 10.0),
                       child: Divider(height: 1, color: AppColors.border),
@@ -97,7 +105,12 @@ class OrderConfirmationScreen extends StatelessWidget {
                       padding: EdgeInsets.symmetric(vertical: 10.0),
                       child: Divider(height: 1, color: AppColors.border),
                     ),
-                    _buildInfoRow('Delivery Address', '123 Palm Avenue, Suite 4B, NY'),
+                    _buildInfoRow('Delivery Address', address),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10.0),
+                      child: Divider(height: 1, color: AppColors.border),
+                    ),
+                    _buildInfoRow('Estimated Delivery', delivery),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 10.0),
                       child: Divider(height: 1, color: AppColors.border),
@@ -112,8 +125,6 @@ class OrderConfirmationScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 32),
-
-              // ACTION BUTTONS: VIEW ORDERS & CONTINUE SHOPPING
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -125,7 +136,6 @@ class OrderConfirmationScreen extends StatelessWidget {
                     ),
                   ),
                   onPressed: () {
-                    // Navigate back to Home
                     Navigator.popUntil(context, (route) => route.isFirst);
                   },
                   icon: const Icon(Icons.receipt_long_rounded, size: 20),
@@ -171,11 +181,11 @@ class OrderConfirmationScreen extends StatelessWidget {
   }
 
   Widget _buildInfoRow(
-    String label,
-    String value, {
-    bool isBold = false,
-    Color? valueColor,
-  }) {
+      String label,
+      String value, {
+        bool isBold = false,
+        Color? valueColor,
+      }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,

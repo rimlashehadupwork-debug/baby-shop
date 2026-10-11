@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import '../data/mock_data.dart';
-import '../models/product_model.dart';
+import '../services/product_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/product_card.dart';
+import '../widgets/product_tile.dart';
 import 'product_details_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -27,20 +26,17 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  /// One simple search across product name, brand and category.
-  /// Every word typed must appear somewhere in those three fields.
-  List<ProductModel> get _searchResults {
+  List<ProductMap> _searchResults(List<ProductMap> all) {
     final terms = _query
         .toLowerCase()
         .split(RegExp(r'\s+'))
         .where((t) => t.isNotEmpty)
         .toList();
 
-    if (terms.isEmpty) return MockData.products;
+    if (terms.isEmpty) return all;
 
-    return MockData.products.where((p) {
-      final haystack =
-      '${p.name} ${p.brand} ${p.categoryName}'.toLowerCase();
+    return all.where((p) {
+      final haystack = '${p.name} ${p.brand} ${p.categoryName}'.toLowerCase();
       return terms.every(haystack.contains);
     }).toList();
   }
@@ -52,7 +48,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final results = _searchResults;
     final hasQuery = _query.trim().isNotEmpty;
 
     return Scaffold(
@@ -65,7 +60,6 @@ class _SearchScreenState extends State<SearchScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Search bar
             Container(
               color: AppColors.surface,
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
@@ -119,112 +113,124 @@ class _SearchScreenState extends State<SearchScreen> {
                 onChanged: (value) => setState(() => _query = value),
               ),
             ),
-
-            // Results heading
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    hasQuery ? 'Search Results' : 'All Products',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primaryText,
-                    ),
-                  ),
-                  Text(
-                    '${results.length} ${results.length == 1 ? 'item' : 'items'}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.secondaryText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Results or empty state
             Expanded(
-              child: results.isEmpty
-                  ? Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+              child: ProductsStreamBuilder(
+                builder: (context, allProducts) {
+                  final results = _searchResults(allProducts);
+
+                  return Column(
                     children: [
-                      Container(
-                        width: 96,
-                        height: 96,
-                        decoration: const BoxDecoration(
-                          color: AppColors.softBlue,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.search_off_rounded,
-                          size: 44,
-                          color: AppColors.primaryBlue,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'No products found',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryText,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'We couldn\'t find anything for "${_query.trim()}".\nTry a different keyword or browse our categories.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.secondaryText,
-                          height: 1.5,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              hasQuery ? 'Search Results' : 'All Products',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryText,
+                              ),
+                            ),
+                            Text(
+                              '${results.length} ${results.length == 1 ? 'item' : 'items'}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.secondaryText,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(200, 48),
+                      Expanded(
+                        child: results.isEmpty
+                            ? Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 96,
+                                  height: 96,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.softBlue,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.search_off_rounded,
+                                    size: 44,
+                                    color: AppColors.primaryBlue,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                const Text(
+                                  'No products found',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primaryText,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  hasQuery
+                                      ? 'We couldn\'t find anything for "${_query.trim()}".\nTry a different keyword or browse our categories.'
+                                      : 'No products available yet.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.secondaryText,
+                                    height: 1.5,
+                                  ),
+                                ),
+                                if (hasQuery) ...[
+                                  const SizedBox(height: 24),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size(200, 48),
+                                    ),
+                                    onPressed: _clearSearch,
+                                    child: const Text('Clear Search'),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        )
+                            : GridView.builder(
+                          physics: const BouncingScrollPhysics(),
+                          keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                          gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 0.58,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 14,
+                          ),
+                          itemCount: results.length,
+                          itemBuilder: (context, index) {
+                            final product = results[index];
+                            return ProductTile(
+                              product: product,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        ProductDetailsScreen(product: product),
+                                  ),
+                                );
+                              },
+                            );
+                          },
                         ),
-                        onPressed: _clearSearch,
-                        child: const Text('Clear Search'),
                       ),
                     ],
-                  ),
-                ),
-              )
-                  : GridView.builder(
-                physics: const BouncingScrollPhysics(),
-                keyboardDismissBehavior:
-                ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                gridDelegate:
-                const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.58,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 14,
-                ),
-                itemCount: results.length,
-                itemBuilder: (context, index) {
-                  final product = results[index];
-                  return ProductCard(
-                    product: product,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              ProductDetailsScreen(product: product),
-                        ),
-                      );
-                    },
                   );
                 },
               ),

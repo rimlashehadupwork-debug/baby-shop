@@ -1,4 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/delivery_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/custom_text_field.dart';
 import '../widgets/primary_button.dart';
@@ -12,57 +14,76 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController(text: 'Sarah Khan');
-  final _emailController = TextEditingController(text: 'sarah@example.com');
-  final _phoneController = TextEditingController(text: '+1 (555) 234-5678');
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _info = DeliveryInfo.instance;
 
   bool _isLoading = false;
+  bool _isFetching = true;
+
+  String get _email => FirebaseAuth.instance.currentUser?.email ?? 'Guest account';
+
+  @override
+  void initState() {
+    super.initState();
+    _prefill();
+  }
+
+  Future<void> _prefill() async {
+    await _info.load();
+    if (!mounted) return;
+    _nameController.text = _info.name;
+    _phoneController.text = _info.phone;
+    setState(() => _isFetching = false);
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
 
-  void _handleSaveChanges() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+  Future<void> _handleSaveChanges() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      // Simulate network save delay
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(child: Text('Personal information updated successfully!')),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 2),
-          ),
+    if (FirebaseAuth.instance.currentUser == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Please login to update your profile')),
         );
-
-        Navigator.pop(context, {
-          'name': _nameController.text.trim(),
-          'email': _emailController.text.trim(),
-          'phone': _phoneController.text.trim(),
-        });
-      }
+      return;
     }
+
+    setState(() => _isLoading = true);
+
+    await _info.save(
+      name: _nameController.text,
+      phone: _phoneController.text,
+      address: _info.address,
+    );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            SizedBox(width: 10),
+            Expanded(child: Text('Personal information updated successfully!')),
+          ],
+        ),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    Navigator.pop(context, true);
   }
 
   @override
@@ -76,100 +97,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: _isFetching
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Avatar with Change Photo Overlay
                 Center(
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.accentBlue.withValues(alpha: 0.15),
-                          border: Border.all(
-                            color: AppColors.primaryBlue.withValues(alpha: 0.3),
-                            width: 3,
-                          ),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: 56,
-                            color: AppColors.primaryBlue,
-                          ),
-                        ),
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.accentBlue.withValues(alpha: 0.15),
+                      border: Border.all(
+                        color: AppColors.primaryBlue.withValues(alpha: 0.3),
+                        width: 3,
                       ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: GestureDetector(
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text('Photo picker coming soon'),
-                                backgroundColor: AppColors.primaryBlue,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryBlue,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.1),
-                                  blurRadius: 6,
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.camera_alt_rounded,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('Photo picker coming soon'),
-                          backgroundColor: AppColors.primaryBlue,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
-                    },
-                    child: const Text(
-                      'Change Photo',
-                      style: TextStyle(
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: 56,
                         color: AppColors.primaryBlue,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // Name Field
                 CustomTextField(
                   label: 'Full Name',
                   hintText: 'Enter your full name',
@@ -184,31 +142,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-
-                // Email Field
-                CustomTextField(
-                  label: 'Email Address',
-                  hintText: 'you@example.com',
-                  controller: _emailController,
-                  prefixIcon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Email is required';
-                    }
-                    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-                    if (!emailRegex.hasMatch(value.trim())) {
-                      return 'Please enter a valid email address';
-                    }
-                    return null;
-                  },
+                const Text(
+                  'Email Address',
+                  style: TextStyle(
+                    color: AppColors.primaryText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  initialValue: _email,
+                  readOnly: true,
+                  style: const TextStyle(
+                    color: AppColors.secondaryText,
+                    fontSize: 15,
+                  ),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
                 ),
                 const SizedBox(height: 20),
-
-                // Phone Number Field
                 CustomTextField(
                   label: 'Phone Number',
-                  hintText: '+1 (555) 000-0000',
+                  hintText: '+92 300 0000000',
                   controller: _phoneController,
                   prefixIcon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
@@ -222,8 +179,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   },
                 ),
                 const SizedBox(height: 32),
-
-                // Save Changes Button
                 PrimaryButton(
                   text: 'Save Changes',
                   isLoading: _isLoading,

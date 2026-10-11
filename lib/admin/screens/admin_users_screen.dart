@@ -1,9 +1,33 @@
 import 'package:flutter/material.dart';
-import '../../services/order_service.dart';
 import '../../theme/app_theme.dart';
-import '../services/admin_user_service.dart';
 import '../widgets/admin_widgets.dart';
 import 'admin_user_details_screen.dart';
+import '../services/firebase_supabase_service.dart';
+
+/// Simple model built from Firebase record
+class AdminUser {
+  final String id;
+  final String name;
+  final String email;
+  final bool active;
+
+  AdminUser({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.active,
+  });
+
+  factory AdminUser.fromMap(String id, Map data) {
+    return AdminUser(
+      id: id,
+      name: (data['name'] ?? 'Unknown').toString(),
+      email: (data['email'] ?? '').toString(),
+      // status: 'active' / 'suspended' (default active)
+      active: (data['status'] ?? 'active').toString() == 'active',
+    );
+  }
+}
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -13,9 +37,21 @@ class AdminUsersScreen extends StatefulWidget {
 }
 
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
-  final _service = AdminUserService.instance;
+  static const _usersTable = 'users';
+
+  final _service = FirebaseSupabaseService();
   final _searchController = TextEditingController();
   String _query = '';
+
+  bool _loading = true;
+  String? _error;
+  List<AdminUser> _all = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   void dispose() {
@@ -23,15 +59,50 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     super.dispose();
   }
 
-  void _openDetails(AdminUser user) {
-    Navigator.push(
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
+    try {
+      final rawUsers = await _service.read(tableName: _usersTable);
+
+      final users = <AdminUser>[];
+      if (rawUsers is Map) {
+        rawUsers.forEach((key, value) {
+          if (value is Map) {
+            users.add(AdminUser.fromMap(key.toString(), value));
+          }
+        });
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _all = users;
+        _error = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _openDetails(AdminUser user) async {
+    await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => AdminUserDetailsScreen(userId: user.id)),
+      MaterialPageRoute(
+        builder: (context) =>
+            AdminUserDetailsScreen(userId: user.id),
+      ),
     );
+
+    if (!mounted) return;
+    _load(silent: true);
   }
 
   Future<void> _toggleStatus(AdminUser user) async {
-    final suspending = user.status == AdminUserStatus.active;
+    final suspending = user.active;
     final confirmed = await showAdminConfirm(
       context,
       title: suspending ? 'Suspend account?' : 'Activate account?',
@@ -42,111 +113,153 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       destructive: suspending,
     );
     if (!confirmed || !mounted) return;
-    _service.setStatus(
-      user.id,
-      suspending ? AdminUserStatus.suspended : AdminUserStatus.active,
-    );
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(suspending ? '${user.name} suspended' : '${user.name} activated'),
-        ),
+
+    try {
+      await _service.update(
+        tableName: _usersTable,
+        id: user.id,
+        data: {'status': suspending ? 'suspended' : 'active'},
       );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+                suspending ? '${user.name} suspended' : '${user.name} activated'),
+          ),
+        );
+      _load(silent: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+  }
+
+  List<AdminUser> get _filtered {
+    final terms = _query
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (terms.isEmpty) return _all;
+    return _all.where((u) {
+      final haystack = '${u.name} ${u.email}'.toLowerCase();
+      return terms.every(haystack.contains);
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AdminLoader(
-      load: adminSimulatedLoad,
-      skeletonHeight: 84,
-      builder: (context) => AnimatedBuilder(
-        animation: Listenable.merge([
-          _service.usersNotifier,
-          OrderService.instance.ordersNotifier,
-        ]),
-        builder: (context, _) {
-          final terms = _query
-              .toLowerCase()
-              .split(RegExp(r'\s+'))
-              .where((t) => t.isNotEmpty)
-              .toList();
-          final all = _service.users;
-          final users = terms.isEmpty
-              ? all
-              : all.where((u) {
-                  final haystack = '${u.name} ${u.email}'.toLowerCase();
-                  return terms.every(haystack.contains);
-                }).toList();
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-          return Column(
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: InputDecoration(
-                    hintText: 'Search by name or email...',
-                    prefixIcon: const Icon(Icons.search_rounded,
-                        color: AppColors.secondaryText),
-                    suffixIcon: _query.isNotEmpty
-                        ? IconButton(
-                            tooltip: 'Clear',
-                            icon: const Icon(Icons.close_rounded,
-                                size: 20, color: AppColors.secondaryText),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _query = '');
-                            },
-                          )
-                        : null,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${users.length} ${users.length == 1 ? 'user' : 'users'}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.secondaryText,
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: users.isEmpty
-                    ? AdminEmptyState(
-                        icon: Icons.people_outline_rounded,
-                        title: all.isEmpty ? 'No users yet' : 'No users found',
-                        message: all.isEmpty
-                            ? 'Registered customers will appear here.'
-                            : 'Try a different name or email.',
-                      )
-                    : ListView.separated(
-                        physics: const BouncingScrollPhysics(),
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-                        itemCount: users.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) => _buildItem(users[index]),
-                      ),
-              ),
+              const Icon(Icons.error_outline_rounded,
+                  size: 40, color: AppColors.error),
+              const SizedBox(height: 12),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.secondaryText)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                  onPressed: () => _load(), child: const Text('Retry')),
             ],
-          );
-        },
-      ),
+          ),
+        ),
+      );
+    }
+
+    final users = _filtered;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _query = value),
+            decoration: InputDecoration(
+              hintText: 'Search by name or email...',
+              prefixIcon: const Icon(Icons.search_rounded,
+                  color: AppColors.secondaryText),
+              suffixIcon: _query.isNotEmpty
+                  ? IconButton(
+                tooltip: 'Clear',
+                icon: const Icon(Icons.close_rounded,
+                    size: 20, color: AppColors.secondaryText),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              )
+                  : null,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${users.length} ${users.length == 1 ? 'user' : 'users'}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.secondaryText,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => _load(silent: true),
+            child: users.isEmpty
+                ? ListView(
+              // RefreshIndicator ke liye scrollable chahiye
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: 360,
+                  child: AdminEmptyState(
+                    icon: Icons.people_outline_rounded,
+                    title:
+                    _all.isEmpty ? 'No users yet' : 'No users found',
+                    message: _all.isEmpty
+                        ? 'Registered customers will appear here.'
+                        : 'Try a different name or email.',
+                  ),
+                ),
+              ],
+            )
+                : ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics()),
+              keyboardDismissBehavior:
+              ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              itemCount: users.length,
+              separatorBuilder: (context, index) =>
+              const SizedBox(height: 12),
+              itemBuilder: (context, index) => _buildItem(users[index]),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildItem(AdminUser user) {
-    final active = user.status == AdminUserStatus.active;
-    final orders = _service.orderCount(user);
+    final active = user.active;
 
     return AdminCard(
       onTap: () => _openDetails(user),
@@ -184,48 +297,36 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   user.email,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.secondaryText),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    StatusBadge(
-                      label: active ? 'Active' : 'Suspended',
-                      color: active ? AppColors.success : AppColors.error,
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        '$orders ${orders == 1 ? 'order' : 'orders'}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.secondaryText,
-                        ),
-                      ),
-                    ),
-                  ],
+                StatusBadge(
+                  label: active ? 'Active' : 'Suspended',
+                  color: active ? AppColors.success : AppColors.error,
                 ),
               ],
             ),
           ),
           PopupMenuButton<String>(
             tooltip: 'Manage user',
-            icon: const Icon(Icons.more_vert_rounded, color: AppColors.secondaryText),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            icon: const Icon(Icons.more_vert_rounded,
+                color: AppColors.secondaryText),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             onSelected: (value) {
               if (value == 'view') _openDetails(user);
               if (value == 'toggle') _toggleStatus(user);
             },
             itemBuilder: (context) => [
-              const PopupMenuItem<String>(value: 'view', child: Text('View Details')),
+              const PopupMenuItem<String>(
+                  value: 'view', child: Text('View Details')),
               PopupMenuItem<String>(
                 value: 'toggle',
                 child: Text(
                   active ? 'Suspend Account' : 'Activate Account',
-                  style: TextStyle(color: active ? AppColors.error : AppColors.success),
+                  style: TextStyle(
+                      color: active ? AppColors.error : AppColors.success),
                 ),
               ),
             ],

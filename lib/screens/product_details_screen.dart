@@ -1,10 +1,13 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../models/product_model.dart';
 import '../services/cart_service.dart';
+import '../services/product_service.dart';
+import '../services/review_service.dart';
 import '../theme/app_theme.dart';
 
 class ProductDetailsScreen extends StatefulWidget {
-  final ProductModel product;
+  final ProductMap product;
 
   const ProductDetailsScreen({
     super.key,
@@ -17,36 +20,82 @@ class ProductDetailsScreen extends StatefulWidget {
 
 class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   int _selectedImageIndex = 0;
-  late List<ProductReview> _reviews;
+  late List<Map<String, dynamic>> _reviews;
   late double _currentRating;
   late int _currentReviewCount;
+
+  StreamSubscription<List<Map<String, dynamic>>>? _reviewsSub;
 
   @override
   void initState() {
     super.initState();
-    _reviews = List.from(widget.product.reviews);
+    _reviews = List<Map<String, dynamic>>.of(widget.product.reviews);
     _currentRating = widget.product.rating;
     _currentReviewCount = widget.product.reviewCount;
+
+    final productId = widget.product.id;
+    if (productId.isNotEmpty) {
+      _reviewsSub = ReviewService.instance.watchReviews(productId).listen(
+            (list) {
+          if (!mounted || list.isEmpty) return;
+          final sum = list.fold<double>(0, (s, r) => s + _reviewRating(r));
+          setState(() {
+            _reviews = list;
+            _currentReviewCount = list.length;
+            _currentRating = sum / list.length;
+          });
+        },
+        onError: (e) => debugPrint('REVIEWS STREAM ERROR: $e'),
+      );
+    }
   }
 
+  @override
+  void dispose() {
+    _reviewsSub?.cancel();
+    super.dispose();
+  }
+
+  double _reviewRating(Map<String, dynamic> r) =>
+      double.tryParse('${r['rating'] ?? 0}') ?? 0;
+
+  String _reviewText(Map<String, dynamic> r, String key) =>
+      (r[key] ?? '').toString();
+
   void _addToCart() {
-    CartService.instance.addItem(widget.product);
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    final product = widget.product;
+    final added = CartService.instance.addItem(product);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+
+    final String message;
+    if (added) {
+      message = 'Added "${product.name}" to cart!';
+    } else if (product.stock <= 0) {
+      message = '"${product.name}" is out of stock';
+    } else {
+      message = 'Only ${product.stock} available in stock';
+    }
+
+    messenger.showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            Icon(
+              added ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Added "${widget.product.name}" to cart!',
+                message,
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
             ),
           ],
         ),
-        backgroundColor: AppColors.success,
+        backgroundColor: added ? AppColors.success : AppColors.error,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
@@ -54,33 +103,52 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  void _addNewReview(String name, double rating, String comment) {
-    final newReview = ProductReview(
-      id: 'rev_${DateTime.now().millisecondsSinceEpoch}',
-      userName: name.trim().isEmpty ? 'Anonymous Parent' : name.trim(),
+  Future<void> _addNewReview(String name, double rating, String comment) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+
+    if (FirebaseAuth.instance.currentUser == null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Please login to write a review'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    final ok = await ReviewService.instance.addReview(
+      productId: widget.product.id,
+      userName: name,
       rating: rating,
-      date: 'Just now',
-      comment: comment.trim(),
+      comment: comment,
     );
 
-    setState(() {
-      _reviews.insert(0, newReview);
-      _currentReviewCount += 1;
-      final totalSum = _reviews.fold<double>(0, (sum, r) => sum + r.rating);
-      _currentRating = totalSum / _reviews.length;
-    });
+    if (!mounted) return;
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
-        content: const Row(
+        content: Row(
           children: [
-            Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-            SizedBox(width: 10),
-            Text('Thank you! Your review has been published.'),
+            Icon(
+              ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                ok
+                    ? 'Thank you! Your review has been published.'
+                    : 'Could not publish your review. Try again.',
+              ),
+            ),
           ],
         ),
-        backgroundColor: AppColors.primaryBlue,
+        backgroundColor: ok ? AppColors.primaryBlue : AppColors.error,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 3),
@@ -90,7 +158,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
   void _showWriteReviewModal() {
     double selectedRating = 5.0;
-    final nameController = TextEditingController(text: 'Sarah Khan');
+    final nameController = TextEditingController();
     final commentController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -117,7 +185,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Modal Header
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -136,8 +203,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-
-                      // Interactive Star Picker
                       const Text(
                         'Your Rating',
                         style: TextStyle(
@@ -168,8 +233,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         }),
                       ),
                       const SizedBox(height: 16),
-
-                      // Name Field
                       TextFormField(
                         controller: nameController,
                         decoration: const InputDecoration(
@@ -185,8 +248,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         },
                       ),
                       const SizedBox(height: 14),
-
-                      // Review Text Field
                       TextFormField(
                         controller: commentController,
                         maxLines: 4,
@@ -206,8 +267,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         },
                       ),
                       const SizedBox(height: 20),
-
-                      // Submit Review Button
                       SizedBox(
                         width: double.infinity,
                         height: 50,
@@ -249,9 +308,37 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
+  Widget _imageFallback(ProductMap product) {
+    return Container(
+      color: AppColors.primaryBlue.withValues(alpha: 0.08),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.child_care_rounded,
+            size: 64,
+            color: AppColors.primaryBlue,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            product.name,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
+    final images = product.images;
+    final original = product.originalPrice;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -275,15 +362,16 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Product Images Gallery
                     Stack(
                       children: [
                         Container(
                           height: 280,
                           width: double.infinity,
                           color: AppColors.surface,
-                          child: PageView.builder(
-                            itemCount: product.images.length,
+                          child: images.isEmpty
+                              ? _imageFallback(product)
+                              : PageView.builder(
+                            itemCount: images.length,
                             onPageChanged: (index) {
                               setState(() {
                                 _selectedImageIndex = index;
@@ -291,38 +379,23 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             },
                             itemBuilder: (context, index) {
                               return Image.network(
-                                product.images[index],
+                                images[index],
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: AppColors.primaryBlue.withValues(alpha: 0.08),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(
-                                          Icons.child_care_rounded,
-                                          size: 64,
-                                          color: AppColors.primaryBlue,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          product.name,
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.primaryBlue,
-                                          ),
-                                        ),
-                                      ],
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return const Center(
+                                    child: CircularProgressIndicator(
+                                      color: AppColors.primaryBlue,
                                     ),
                                   );
+                                },
+                                errorBuilder: (context, error, stackTrace) {
+                                  return _imageFallback(product);
                                 },
                               );
                             },
                           ),
                         ),
-                        // Category Tag Badge
                         Positioned(
                           top: 16,
                           left: 16,
@@ -342,8 +415,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             ),
                           ),
                         ),
-                        // Page Indicators
-                        if (product.images.length > 1)
+                        if (images.length > 1)
                           Positioned(
                             bottom: 12,
                             left: 0,
@@ -351,8 +423,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: List.generate(
-                                product.images.length,
-                                (index) => Container(
+                                images.length,
+                                    (index) => Container(
                                   width: _selectedImageIndex == index ? 20 : 8,
                                   height: 8,
                                   margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -369,13 +441,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       ],
                     ),
 
-                    // Main Info Container
                     Padding(
                       padding: const EdgeInsets.all(20.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Brand & Name
                           Text(
                             product.brand.toUpperCase(),
                             style: const TextStyle(
@@ -397,41 +467,34 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           ),
                           const SizedBox(height: 14),
 
-                          // Price & Rating Bar
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                                    textBaseline: TextBaseline.alphabetic,
-                                    children: [
-                                      Text(
-                                        '\$${product.price.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          fontSize: 26,
-                                          fontWeight: FontWeight.w800,
-                                          color: AppColors.primaryBlue,
-                                        ),
-                                      ),
-                                      if (product.originalPrice != null) ...[
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          '\$${product.originalPrice!.toStringAsFixed(2)}',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            decoration: TextDecoration.lineThrough,
-                                            color: AppColors.secondaryText,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
+                                  Text(
+                                    '\$${product.price.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryBlue,
+                                    ),
                                   ),
+                                  if (original != null) ...[
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '\$${original.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        decoration: TextDecoration.lineThrough,
+                                        color: AppColors.secondaryText,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
-                              // Rating Chip
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
@@ -468,12 +531,38 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Icon(
+                                product.stock > 0
+                                    ? Icons.check_circle_outline_rounded
+                                    : Icons.cancel_outlined,
+                                size: 16,
+                                color: product.stock > 0
+                                    ? AppColors.success
+                                    : AppColors.error,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                product.stock > 0
+                                    ? '${product.stock} in stock'
+                                    : 'Out of stock',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: product.stock > 0
+                                      ? AppColors.success
+                                      : AppColors.error,
+                                ),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 24),
 
                           const Divider(height: 1, color: AppColors.border),
                           const SizedBox(height: 20),
 
-                          // SELLER RATING & INFO CARD
                           const Text(
                             'Seller Information',
                             style: TextStyle(
@@ -489,7 +578,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           const Divider(height: 1, color: AppColors.border),
                           const SizedBox(height: 20),
 
-                          // Description Section
                           const Text(
                             'Product Description',
                             style: TextStyle(
@@ -509,7 +597,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           ),
                           const SizedBox(height: 18),
 
-                          // Key Features
                           if (product.features.isNotEmpty) ...[
                             const Text(
                               'Key Highlights',
@@ -553,7 +640,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           const Divider(height: 1, color: AppColors.border),
                           const SizedBox(height: 20),
 
-                          // CUSTOMER REVIEWS SECTION
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -585,11 +671,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           ),
                           const SizedBox(height: 14),
 
-                          // Overall Rating Summary Box
                           _buildRatingSummarySection(_currentRating, _currentReviewCount),
                           const SizedBox(height: 16),
 
-                          // Individual Customer Reviews List
                           if (_reviews.isEmpty)
                             Container(
                               width: double.infinity,
@@ -608,6 +692,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           else
                             Column(
                               children: _reviews.map((review) {
+                                final userName = _reviewText(review, 'userName');
+                                final rating = _reviewRating(review);
                                 return Container(
                                   margin: const EdgeInsets.only(bottom: 12),
                                   padding: const EdgeInsets.all(16),
@@ -635,7 +721,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                                 radius: 16,
                                                 backgroundColor: AppColors.primaryBlue.withValues(alpha: 0.15),
                                                 child: Text(
-                                                  review.userName.substring(0, 1).toUpperCase(),
+                                                  userName.isEmpty
+                                                      ? '?'
+                                                      : userName.substring(0, 1).toUpperCase(),
                                                   style: const TextStyle(
                                                     color: AppColors.primaryBlue,
                                                     fontWeight: FontWeight.bold,
@@ -644,7 +732,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                               ),
                                               const SizedBox(width: 10),
                                               Text(
-                                                review.userName,
+                                                userName,
                                                 style: const TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 14,
@@ -654,7 +742,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                             ],
                                           ),
                                           Text(
-                                            review.date,
+                                            _reviewText(review, 'date'),
                                             style: const TextStyle(
                                               fontSize: 11,
                                               color: AppColors.secondaryText,
@@ -666,7 +754,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                       Row(
                                         children: List.generate(5, (starIndex) {
                                           return Icon(
-                                            starIndex < review.rating.floor()
+                                            starIndex < rating.floor()
                                                 ? Icons.star_rounded
                                                 : Icons.star_border_rounded,
                                             size: 16,
@@ -676,7 +764,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        review.comment,
+                                        _reviewText(review, 'comment'),
                                         style: const TextStyle(
                                           fontSize: 13,
                                           color: AppColors.primaryText,
@@ -696,7 +784,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               ),
             ),
 
-            // Bottom Sticky Bar with Add to Cart Button
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -746,11 +833,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: _addToCart,
+                      onPressed: product.stock <= 0 ? null : _addToCart,
                       icon: const Icon(Icons.shopping_cart_outlined, size: 20),
-                      label: const Text(
-                        'Add to Cart',
-                        style: TextStyle(
+                      label: Text(
+                        product.stock <= 0 ? 'Out of Stock' : 'Add to Cart',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
@@ -766,7 +853,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  Widget _buildSellerCard(ProductModel product) {
+  Widget _buildSellerCard(ProductMap product) {
+    final hasSellerRating =
+        product.sellerRating > 0 || product.sellerRatingCount > 0;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -786,7 +876,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         children: [
           Row(
             children: [
-              // Store Icon Badge
               Container(
                 width: 48,
                 height: 48,
@@ -801,8 +890,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ),
               ),
               const SizedBox(width: 14),
-
-              // Seller Name & Verified Badge
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -830,50 +917,50 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: AppColors.warning,
-                          size: 15,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          product.sellerRating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primaryText,
+                    if (hasSellerRating) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.star_rounded,
+                            color: AppColors.warning,
+                            size: 15,
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '(${product.sellerRatingCount} ratings)',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.secondaryText,
+                          const SizedBox(width: 3),
+                          Text(
+                            product.sellerRating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primaryText,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '(${product.sellerRatingCount} ratings)',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-
-          // Seller Credibility Highlights Bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: AppColors.inputBackground,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Row(
+            child: const Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: const [
+              children: [
                 _SellerBadgeItem(
                   icon: Icons.thumb_up_alt_outlined,
                   label: '99% Positive',
@@ -894,6 +981,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
+  double _starShare(int star) {
+    if (_reviews.isEmpty) return 0;
+    final count = _reviews.where((r) => _reviewRating(r).round() == star).length;
+    return count / _reviews.length;
+  }
+
   Widget _buildRatingSummarySection(double rating, int reviewCount) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -904,7 +997,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       ),
       child: Row(
         children: [
-          // Rating Score Big Display
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -941,16 +1033,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             ],
           ),
           const SizedBox(width: 20),
-
-          // Star Progress Bars
           Expanded(
             child: Column(
               children: [
-                _buildStarProgressBar(5, 0.85),
-                _buildStarProgressBar(4, 0.12),
-                _buildStarProgressBar(3, 0.02),
-                _buildStarProgressBar(2, 0.01),
-                _buildStarProgressBar(1, 0.00),
+                _buildStarProgressBar(5, _starShare(5)),
+                _buildStarProgressBar(4, _starShare(4)),
+                _buildStarProgressBar(3, _starShare(3)),
+                _buildStarProgressBar(2, _starShare(2)),
+                _buildStarProgressBar(1, _starShare(1)),
               ],
             ),
           ),

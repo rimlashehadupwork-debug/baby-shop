@@ -1,14 +1,15 @@
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart';
-import '../../models/product_model.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/category_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../services/admin_product_service.dart';
+import '../services/firebase_supabase_service.dart';
 import '../widgets/admin_widgets.dart';
 
-/// Add Product (product == null) or Edit Product (product provided).
 class AdminProductFormScreen extends StatefulWidget {
-  final ProductModel? product;
+  final Map<String, dynamic>? product;
 
   const AdminProductFormScreen({super.key, this.product});
 
@@ -17,10 +18,13 @@ class AdminProductFormScreen extends StatefulWidget {
 }
 
 class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _service = AdminProductService.instance;
+  static const _table = 'products';
+  static const _bucket = 'products';
 
-  late final TextEditingController _imageController;
+  final _formKey = GlobalKey<FormState>();
+  final _service = FirebaseSupabaseService();
+  final _picker = ImagePicker();
+
   late final TextEditingController _nameController;
   late final TextEditingController _brandController;
   late final TextEditingController _descriptionController;
@@ -29,27 +33,35 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
   String? _category;
   bool _saving = false;
 
+  String _existingUrl = '';
+  Uint8List? _pickedBytes;
+  String _pickedName = '';
+  String? _pickedMime;
+  String? _imageError;
+
   bool get _isEdit => widget.product != null;
 
   @override
   void initState() {
     super.initState();
     final p = widget.product;
-    _imageController = TextEditingController(text: p?.imageUrl ?? '');
-    _nameController = TextEditingController(text: p?.name ?? '');
-    _brandController = TextEditingController(text: p?.brand ?? '');
-    _descriptionController = TextEditingController(text: p?.description ?? '');
-    _priceController =
-        TextEditingController(text: p != null ? p.price.toStringAsFixed(2) : '');
-    _stockController =
-        TextEditingController(text: p != null ? '${_service.stockOf(p.id)}' : '');
-    final names = MockData.categories.map((c) => c.name).toList();
-    _category = (p != null && names.contains(p.categoryName)) ? p.categoryName : null;
+    String s(String key) => (p?[key] ?? '').toString();
+
+    _existingUrl = s('imageUrl');
+    _nameController = TextEditingController(text: s('name'));
+    _brandController = TextEditingController(text: s('brand'));
+    _descriptionController = TextEditingController(text: s('description'));
+    final price = double.tryParse(s('price'));
+    _priceController = TextEditingController(
+        text: price != null ? price.toStringAsFixed(2) : '');
+    _stockController = TextEditingController(text: p != null ? s('stock') : '');
+
+    final names = CategoryService.instance.categories.map((c) => c.name).toList();
+    _category = names.contains(s('categoryName')) ? s('categoryName') : null;
   }
 
   @override
   void dispose() {
-    _imageController.dispose();
     _nameController.dispose();
     _brandController.dispose();
     _descriptionController.dispose();
@@ -58,75 +70,158 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
     super.dispose();
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final file = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      debugPrint(
+          '[IMAGE PICK] name=${file.name}, mime=${file.mimeType}, bytes=${bytes.length}');
+      setState(() {
+        _pickedBytes = bytes;
+        _pickedName = file.name;
+        _pickedMime = file.mimeType;
+        _imageError = null;
+      });
+    } catch (e, st) {
+      debugPrint('❌ IMAGE PICK FAILED');
+      debugPrint('ERROR TYPE: ${e.runtimeType}');
+      debugPrint('ERROR: $e');
+      debugPrint('STACK:\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Image pick failed: $e')));
+    }
+  }
+
+  String get _pickedExtension {
+    final dot = _pickedName.lastIndexOf('.');
+    return dot == -1 ? '.jpg' : _pickedName.substring(dot);
+  }
+
   Future<void> _save() async {
     if (_saving) return;
-    if (!_formKey.currentState!.validate()) return;
+
+    final formOk = _formKey.currentState!.validate();
+    final hasImage = _pickedBytes != null || _existingUrl.isNotEmpty;
+    setState(() => _imageError = hasImage ? null : 'Product image is required');
+    if (!formOk || !hasImage) return;
 
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
 
-    final category = MockData.categories.firstWhere((c) => c.name == _category);
-    final price = double.parse(_priceController.text.trim());
-    final stock = int.parse(_stockController.text.trim());
-    final imageUrl = _imageController.text.trim();
-    final old = widget.product;
+    String step = 'START';
+    try {
+      String imageUrl = _existingUrl;
+      if (_pickedBytes != null) {
+        step = 'SUPABASE UPLOAD';
+        debugPrint(
+            '[$step] bytes=${_pickedBytes!.length}, ext=$_pickedExtension, mime=$_pickedMime, bucket=$_bucket');
+        imageUrl = await _service.uploadFile(
+          bytes: _pickedBytes!,
+          bucketName: _bucket,
+          extension: _pickedExtension,
+          contentType: _pickedMime,
+        );
+        debugPrint('[$step] OK url=$imageUrl');
+      }
 
-    if (old == null) {
-      _service.addProduct(
-        ProductModel(
-          id: _service.newId(),
-          name: _nameController.text.trim(),
-          brand: _brandController.text.trim(),
-          categoryId: category.id,
-          categoryName: category.name,
-          price: price,
-          rating: 0,
-          reviewCount: 0,
-          imageUrl: imageUrl,
-          images: [imageUrl],
-          description: _descriptionController.text.trim(),
-          features: const [],
-          isFeatured: false,
-          reviews: const [],
-        ),
-        stock,
-      );
-    } else {
-      final keepOriginal = old.originalPrice != null && old.originalPrice! > price;
-      _service.updateProduct(
-        ProductModel(
-          id: old.id,
-          name: _nameController.text.trim(),
-          brand: _brandController.text.trim(),
-          categoryId: category.id,
-          categoryName: category.name,
-          price: price,
-          originalPrice: keepOriginal ? old.originalPrice : null,
-          rating: old.rating,
-          reviewCount: old.reviewCount,
-          imageUrl: imageUrl,
-          images: [imageUrl, ...old.images.skip(1)],
-          description: _descriptionController.text.trim(),
-          features: old.features,
-          isFeatured: old.isFeatured,
-          reviews: old.reviews,
-          sellerName: old.sellerName,
-          sellerRating: old.sellerRating,
-          sellerRatingCount: old.sellerRatingCount,
-          sellerIsVerified: old.sellerIsVerified,
-        ),
-        stock,
+      step = 'PREPARE DATA';
+      final category =
+      CategoryService.instance.categories.firstWhere((c) => c.name == _category);
+      final price = double.parse(_priceController.text.trim());
+      final stock = int.parse(_stockController.text.trim());
+      final old = widget.product;
+
+      final data = <String, dynamic>{
+        'name': _nameController.text.trim(),
+        'brand': _brandController.text.trim(),
+        'categoryId': category.id,
+        'categoryName': category.name,
+        'price': price,
+        'imageUrl': imageUrl,
+        'description': _descriptionController.text.trim(),
+        'stock': stock,
+      };
+
+      if (old == null) {
+        step = 'RTDB CREATE';
+        debugPrint('[$step] table=$_table');
+        await _service.create(tableName: _table, data: {
+          ...data,
+          'images': [imageUrl],
+          'features': [],
+          'rating': 0,
+          'reviewCount': 0,
+          'isFeatured': false,
+          'createdAt': DateTime.now().toIso8601String(),
+        });
+        debugPrint('[$step] OK');
+      } else {
+        step = 'RTDB UPDATE';
+        final oldOriginal = double.tryParse('${old['originalPrice'] ?? ''}');
+        final keepOriginal = oldOriginal != null && oldOriginal > price;
+
+        final oldImages = old['images'];
+        final extraImages =
+        (oldImages is List) ? oldImages.skip(1).toList() : [];
+
+        debugPrint('[$step] id=${old['id']}');
+        await _service.update(
+          tableName: _table,
+          id: old['id'].toString(),
+          data: {
+            ...data,
+            'images': [imageUrl, ...extraImages],
+            'originalPrice': keepOriginal ? oldOriginal : null,
+          },
+        );
+        debugPrint('[$step] OK');
+      }
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.pop(context, true);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+              content: Text(_isEdit ? 'Product updated' : 'Product added')),
+        );
+    } catch (e, st) {
+      debugPrint('❌ SAVE FAILED at step: $step');
+      debugPrint('ERROR TYPE: ${e.runtimeType}');
+      debugPrint('ERROR: $e');
+      debugPrint('STACK:\n$st');
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Failed at [$step]: $e'),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+    }
+  }
+
+  Widget _imagePreview() {
+    const size = 120.0;
+    if (_pickedBytes != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.memory(_pickedBytes!,
+            width: size, height: size, fit: BoxFit.cover),
       );
     }
-
-    final messenger = ScaffoldMessenger.of(context);
-    Navigator.pop(context);
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(_isEdit ? 'Product updated' : 'Product added')),
-      );
+    return AdminThumb(url: _existingUrl, size: size);
   }
 
   @override
@@ -146,7 +241,6 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Image preview
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -160,34 +254,30 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          Center(
-                            child: AdminThumb(
-                              url: _imageController.text.trim(),
-                              size: 120,
+                          Center(child: _imagePreview()),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: _saving ? null : _pickImage,
+                            icon: const Icon(Icons.photo_library_outlined,
+                                size: 20),
+                            label: Text(
+                              (_pickedBytes != null || _existingUrl.isNotEmpty)
+                                  ? 'Change Image'
+                                  : 'Choose Image',
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          AdminField(
-                            label: 'Image URL',
-                            controller: _imageController,
-                            hint: 'https://...',
-                            keyboardType: TextInputType.url,
-                            prefixIcon: Icons.link_rounded,
-                            onChanged: (_) => setState(() {}),
-                            validator: (value) {
-                              final v = value?.trim() ?? '';
-                              if (v.isEmpty) return 'Product image is required';
-                              if (!v.startsWith('http://') && !v.startsWith('https://')) {
-                                return 'Enter a valid image link (http or https)';
-                              }
-                              return null;
-                            },
-                          ),
+                          if (_imageError != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _imageError!,
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppColors.error),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -199,7 +289,9 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                             validator: (value) {
                               final v = value?.trim() ?? '';
                               if (v.isEmpty) return 'Product name is required';
-                              if (v.length < 3) return 'Name must be at least 3 characters';
+                              if (v.length < 3) {
+                                return 'Name must be at least 3 characters';
+                              }
                               return null;
                             },
                           ),
@@ -209,9 +301,9 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                             controller: _brandController,
                             hint: 'e.g. Pampers',
                             validator: (value) =>
-                                (value == null || value.trim().isEmpty)
-                                    ? 'Brand is required'
-                                    : null,
+                            (value == null || value.trim().isEmpty)
+                                ? 'Brand is required'
+                                : null,
                           ),
                           const SizedBox(height: 18),
                           const Text(
@@ -228,15 +320,17 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                             isExpanded: true,
                             hint: const Text('Select a category'),
                             decoration: const InputDecoration(),
-                            items: MockData.categories
+                            items: CategoryService.instance.categories
                                 .map((c) => DropdownMenuItem<String>(
-                                      value: c.name,
-                                      child: Text(c.name),
-                                    ))
+                              value: c.name,
+                              child: Text(c.name),
+                            ))
                                 .toList(),
-                            onChanged: (value) => setState(() => _category = value),
-                            validator: (value) =>
-                                value == null ? 'Please select a category' : null,
+                            onChanged: (value) =>
+                                setState(() => _category = value),
+                            validator: (value) => value == null
+                                ? 'Please select a category'
+                                : null,
                           ),
                           const SizedBox(height: 18),
                           AdminField(
@@ -264,10 +358,12 @@ class _AdminProductFormScreenState extends State<AdminProductFormScreen> {
                                   controller: _priceController,
                                   hint: '0.00',
                                   prefixText: '\$ ',
-                                  keyboardType: const TextInputType.numberWithOptions(
+                                  keyboardType:
+                                  const TextInputType.numberWithOptions(
                                       decimal: true),
                                   validator: (value) {
-                                    final v = double.tryParse(value?.trim() ?? '');
+                                    final v =
+                                    double.tryParse(value?.trim() ?? '');
                                     if (v == null) return 'Enter a valid price';
                                     if (v <= 0) return 'Price must be above 0';
                                     return null;

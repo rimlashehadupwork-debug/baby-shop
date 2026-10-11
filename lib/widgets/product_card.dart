@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/product_model.dart';
 import '../services/cart_service.dart';
+import '../services/product_service.dart';
 import '../theme/app_theme.dart';
 
 class ProductCard extends StatelessWidget {
-  final ProductModel product;
+  final ProductMap product;
   final VoidCallback onTap;
   final VoidCallback? onAddToCart;
 
@@ -17,7 +17,7 @@ class ProductCard extends StatelessWidget {
 
   int? get _discountPercent {
     final original = product.originalPrice;
-    if (original == null || original <= product.price) return null;
+    if (original == null) return null;
     return (((original - product.price) / original) * 100).round();
   }
 
@@ -26,13 +26,24 @@ class ProductCard extends StatelessWidget {
       onAddToCart!();
       return;
     }
-    CartService.instance.addItem(product);
+
+    final added = CartService.instance.addItem(product);
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
+
+    final String message;
+    if (added) {
+      message = 'Added ${product.name} to cart';
+    } else if (product.stock <= 0) {
+      message = '${product.name} is out of stock';
+    } else {
+      message = 'Only ${product.stock} available in stock';
+    }
+
     messenger.showSnackBar(
       SnackBar(
-        content: Text('Added ${product.name} to cart'),
-        backgroundColor: AppColors.primaryText,
+        content: Text(message),
+        backgroundColor: added ? AppColors.primaryText : AppColors.error,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -40,9 +51,36 @@ class ProductCard extends StatelessWidget {
     );
   }
 
+  Widget _fallback() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.image_outlined,
+            size: 30,
+            color: AppColors.primaryBlue.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            product.brand,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryBlue.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final discount = _discountPercent;
+    final original = product.originalPrice;
+    final outOfStock = product.stock <= 0;
+    final imageUrl = product.imageUrl;
 
     return Container(
       decoration: BoxDecoration(
@@ -60,37 +98,19 @@ class ProductCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image area
               Expanded(
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
                     Container(
                       color: AppColors.softBlue.withValues(alpha: 0.5),
-                      child: Image.network(
-                        product.imageUrl,
+                      child: imageUrl.isEmpty
+                          ? _fallback()
+                          : Image.network(
+                        imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.image_outlined,
-                                size: 30,
-                                color: AppColors.primaryBlue.withValues(alpha: 0.5),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                product.brand,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primaryBlue.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        errorBuilder: (context, error, stackTrace) =>
+                            _fallback(),
                         loadingBuilder: (context, child, progress) {
                           if (progress == null) return child;
                           return const Center(
@@ -126,14 +146,33 @@ class ProductCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                    if (outOfStock)
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.error,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Out of stock',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-
-              // Info
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -199,9 +238,9 @@ class ProductCard extends StatelessWidget {
                                   color: AppColors.primaryText,
                                 ),
                               ),
-                              if (product.originalPrice != null)
+                              if (original != null)
                                 Text(
-                                  '\$${product.originalPrice!.toStringAsFixed(2)}',
+                                  '\$${original.toStringAsFixed(2)}',
                                   maxLines: 1,
                                   style: const TextStyle(
                                     fontSize: 11,
@@ -217,19 +256,23 @@ class ProductCard extends StatelessWidget {
                           button: true,
                           label: 'Add ${product.name} to cart',
                           child: InkWell(
-                            onTap: () => _addToCart(context),
+                            onTap: outOfStock ? null : () => _addToCart(context),
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               width: 38,
                               height: 38,
                               decoration: BoxDecoration(
-                                color: AppColors.primaryBlue,
+                                color: outOfStock
+                                    ? AppColors.border
+                                    : AppColors.primaryBlue,
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.add_shopping_cart_rounded,
                                 size: 18,
-                                color: Colors.white,
+                                color: outOfStock
+                                    ? AppColors.secondaryText
+                                    : Colors.white,
                               ),
                             ),
                           ),

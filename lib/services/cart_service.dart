@@ -1,74 +1,178 @@
-import 'package:flutter/material.dart';
-import '../data/mock_data.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import '../models/cart_item_model.dart';
-import '../models/product_model.dart';
+import 'product_service.dart';
+import 'user_session.dart';
 
 class CartService {
-  static final CartService instance = CartService._internal();
-
-  CartService._internal() {
-    // Populate with 2 initial mock cart items for realistic demo
-    if (MockData.products.length >= 2) {
-      _items.add(CartItemModel(product: MockData.products[0], quantity: 2));
-      _items.add(CartItemModel(product: MockData.products[3], quantity: 1));
-      itemsNotifier.value = List.unmodifiable(_items);
-    }
+  CartService._() {
+    FirebaseAuth.instance.authStateChanges().listen((_) => reload());
   }
 
-  final List<CartItemModel> _items = [];
-  final ValueNotifier<List<CartItemModel>> itemsNotifier = ValueNotifier([]);
+  static final CartService instance = CartService._();
 
-  List<CartItemModel> get items => List.unmodifiable(_items);
+  static const String table = 'carts';
+  static const double freeDeliveryThreshold = 50.0;
+  static const double standardDeliveryFee = 4.99;
 
-  int get itemCount => _items.fold(0, (sum, item) => sum + item.quantity);
+  final ValueNotifier<List<CartItemModel>> itemsNotifier =
+  ValueNotifier<List<CartItemModel>>([]);
 
-  double get subtotal => _items.fold(0, (sum, item) => sum + item.totalPrice);
+  DatabaseReference get _ref =>
+      FirebaseDatabase.instance.ref('$table/${UserSession.key}');
 
-  double get deliveryFee => subtotal > 0 ? (subtotal >= 50.0 ? 0.0 : 4.99) : 0.0;
+  List<CartItemModel> get items => itemsNotifier.value;
+
+  bool get isEmpty => items.isEmpty;
+
+  int get itemCount => items.fold<int>(0, (sum, item) => sum + item.quantity);
+
+  double get subtotal =>
+      items.fold<double>(0, (sum, item) => sum + item.totalPrice);
+
+  double get deliveryFee {
+    if (items.isEmpty) return 0;
+    return subtotal >= freeDeliveryThreshold ? 0 : standardDeliveryFee;
+  }
 
   double get total => subtotal + deliveryFee;
 
-  void addItem(ProductModel product, [int quantity = 1]) {
-    final existingIndex = _items.indexWhere((item) => item.product.id == product.id);
-    if (existingIndex >= 0) {
-      _items[existingIndex].quantity += quantity;
-    } else {
-      _items.add(CartItemModel(product: product, quantity: quantity));
+  Map<String, dynamic> _toRow(CartItemModel item) {
+    final p = item.product;
+    return {
+      'productId': p.id,
+      'name': p.name,
+      'brand': p.brand,
+      'categoryName': p.categoryName,
+      'imageUrl': p.imageUrl,
+      'price': p.price,
+      'originalPrice': p.originalPrice,
+      'stock': p.stock,
+      'quantity': item.quantity,
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+  }
+
+  CartItemModel? _fromRow(String key, dynamic raw) {
+    if (raw is! Map) return null;
+    final row = raw.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+    final product = <String, dynamic>{
+      'id': (row['productId'] ?? key).toString(),
+      'name': row['name'],
+      'brand': row['brand'],
+      'categoryName': row['categoryName'],
+      'imageUrl': row['imageUrl'],
+      'price': row['price'],
+      'originalPrice': row['originalPrice'],
+      'stock': row['stock'],
+    };
+    final qty = int.tryParse('${row['quantity'] ?? 1}') ?? 1;
+    return CartItemModel(product: product, quantity: qty < 1 ? 1 : qty);
+  }
+
+  void _saveRow(CartItemModel item) {
+    _ref.child(item.product.id).set(_toRow(item)).catchError((Object e) {
+      debugPrint('CART SAVE ERROR: $e');
+    });
+  }
+
+  Future<void> load() async {
+    try {
+      final snap = await _ref.get();
+      final loaded = <CartItemModel>[];
+      final value = snap.value;
+      if (value is Map) {
+        value.forEach((k, v) {
+          final item = _fromRow(k.toString(), v);
+          if (item != null) loaded.add(item);
+        });
+      }
+      final merged = List<CartItemModel>.of(items);
+      for (final item in loaded) {
+        if (!merged.any((m) => m.product.id == item.product.id)) {
+          merged.add(item);
+        }
+      }
+      itemsNotifier.value = merged;
+    } catch (e) {
+      debugPrint('CART LOAD ERROR: $e');
     }
-    _notify();
+  }
+
+  Future<void> reload() async {
+    itemsNotifier.value = [];
+    await load();
+  }
+
+  int _indexOf(String productId) =>
+      items.indexWhere((item) => item.product.id == productId);
+
+  bool addItem(ProductMap product) {
+    if (product.stock <= 0) return false;
+
+    final list = List<CartItemModel>.of(items);
+    final index = list.indexWhere((item) => item.product.id == product.id);
+    late final CartItemModel changed;
+
+    if (index == -1) {
+      changed = CartItemModel(product: product, quantity: 1);
+      list.add(changed);
+    } else {
+      final current = list[index];
+      if (current.quantity + 1 > product.stock) return false;
+      changed = current.copyWith(quantity: current.quantity + 1);
+      list[index] = changed;
+    }
+
+    itemsNotifier.value = list;
+    _saveRow(changed);
+    return true;
   }
 
   void removeItem(String productId) {
-    _items.removeWhere((item) => item.product.id == productId);
-    _notify();
+    itemsNotifier.value =
+        items.where((item) => item.product.id != productId).toList();
+    _ref.child(productId).remove().catchError((Object e) {
+      debugPrint('CART REMOVE ERROR: $e');
+    });
   }
 
-  void incrementQuantity(String productId) {
-    final index = _items.indexWhere((item) => item.product.id == productId);
-    if (index >= 0) {
-      _items[index].quantity += 1;
-      _notify();
-    }
+  bool incrementQuantity(String productId) {
+    final index = _indexOf(productId);
+    if (index == -1) return false;
+
+    final current = items[index];
+    if (current.quantity + 1 > current.product.stock) return false;
+
+    final changed = current.copyWith(quantity: current.quantity + 1);
+    final list = List<CartItemModel>.of(items);
+    list[index] = changed;
+    itemsNotifier.value = list;
+    _saveRow(changed);
+    return true;
   }
 
   void decrementQuantity(String productId) {
-    final index = _items.indexWhere((item) => item.product.id == productId);
-    if (index >= 0) {
-      if (_items[index].quantity > 1) {
-        _items[index].quantity -= 1;
-      } else {
-        _items.removeAt(index);
-      }
-      _notify();
-    }
+    final index = _indexOf(productId);
+    if (index == -1) return;
+
+    final current = items[index];
+    if (current.quantity <= 1) return;
+
+    final changed = current.copyWith(quantity: current.quantity - 1);
+    final list = List<CartItemModel>.of(items);
+    list[index] = changed;
+    itemsNotifier.value = list;
+    _saveRow(changed);
   }
 
-  void clearCart() {
-    _items.clear();
-    _notify();
+  void clear() {
+    itemsNotifier.value = [];
+    _ref.remove().catchError((Object e) {
+      debugPrint('CART CLEAR ERROR: $e');
+    });
   }
 
-  void _notify() {
-    itemsNotifier.value = List.unmodifiable(_items);
-  }
+  void clearCart() => clear();
 }

@@ -1,8 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/delivery_info.dart';
 import '../theme/app_theme.dart';
 import '../widgets/custom_text_field.dart';
 import '../widgets/primary_button.dart';
-import 'delivery_addresses_screen.dart';
 
 class AddEditAddressScreen extends StatefulWidget {
   const AddEditAddressScreen({super.key});
@@ -13,145 +14,103 @@ class AddEditAddressScreen extends StatefulWidget {
 
 class _AddEditAddressScreenState extends State<AddEditAddressScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _info = DeliveryInfo.instance;
 
-  late TextEditingController _recipientNameController;
-  late TextEditingController _streetController;
-  late TextEditingController _cityStateZipController;
-  late TextEditingController _phoneController;
-
-  String _selectedLabel = 'Home';
-  bool _isDefault = false;
   bool _isEditMode = false;
-  String? _addressId;
+  bool _isFetching = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _recipientNameController = TextEditingController(text: 'Sarah Khan');
-    _streetController = TextEditingController();
-    _cityStateZipController = TextEditingController();
-    _phoneController = TextEditingController(text: '+92 300 1234567');
+    _prefill();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments;
-    if (args != null && args is AddressItem) {
-      _isEditMode = true;
-      _addressId = args.id;
-      _selectedLabel = args.label;
-      _recipientNameController.text = args.recipientName;
-      _streetController.text = args.street;
-      _cityStateZipController.text = args.cityStateZip;
-      _phoneController.text = args.phone;
-      _isDefault = args.isDefault;
-    }
+  Future<void> _prefill() async {
+    await _info.load();
+    if (!mounted) return;
+    _nameController.text = _info.name;
+    _addressController.text = _info.address;
+    _phoneController.text = _info.phone;
+    setState(() {
+      _isEditMode = _info.address.trim().isNotEmpty;
+      _isFetching = false;
+    });
   }
 
   @override
   void dispose() {
-    _recipientNameController.dispose();
-    _streetController.dispose();
-    _cityStateZipController.dispose();
+    _nameController.dispose();
+    _addressController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
 
-  void _handleSave() {
-    if (_formKey.currentState!.validate()) {
-      final newAddress = AddressItem(
-        id: _addressId ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        label: _selectedLabel,
-        recipientName: _recipientNameController.text.trim(),
-        street: _streetController.text.trim(),
-        cityStateZip: _cityStateZipController.text.trim(),
-        phone: _phoneController.text.trim(),
-        isDefault: _isDefault,
-      );
+  Future<void> _handleSave() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_isEditMode ? 'Address updated successfully' : 'Address added successfully'),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-
-      Navigator.pop(context, newAddress);
+    if (FirebaseAuth.instance.currentUser == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Please login to save your address')),
+        );
+      return;
     }
+
+    setState(() => _isSaving = true);
+
+    await _info.save(
+      name: _nameController.text,
+      phone: _phoneController.text,
+      address: _addressController.text,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_isEditMode ? 'Address updated successfully' : 'Address added successfully'),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+
+    Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Edit Address' : 'Add New Address'),
+        title: Text(_isEditMode ? 'Edit Address' : 'Add Address'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: _isFetching
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Address Label Selector Chips
-                const Text(
-                  'Address Label',
-                  style: TextStyle(
-                    color: AppColors.primaryText,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: ['Home', 'Work', 'Other'].map((label) {
-                    final isSelected = _selectedLabel == label;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 12.0),
-                      child: ChoiceChip(
-                        label: Text(label),
-                        selected: isSelected,
-                        selectedColor: AppColors.primaryBlue,
-                        backgroundColor: AppColors.surface,
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : AppColors.primaryText,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                            color: isSelected ? AppColors.primaryBlue : AppColors.border,
-                          ),
-                        ),
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _selectedLabel = label;
-                            });
-                          }
-                        },
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 20),
-
-                // Full Name / Recipient
                 CustomTextField(
                   label: 'Recipient Full Name',
-                  hintText: 'e.g. Sarah Khan',
-                  controller: _recipientNameController,
+                  hintText: 'Enter recipient name',
+                  controller: _nameController,
                   prefixIcon: Icons.person_outlined,
+                  keyboardType: TextInputType.name,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'Recipient name is required';
@@ -160,38 +119,20 @@ class _AddEditAddressScreenState extends State<AddEditAddressScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-
-                // Street Address
                 CustomTextField(
-                  label: 'Street Address',
-                  hintText: 'House/Apt No., Street Name, Area',
-                  controller: _streetController,
+                  label: 'Full Address',
+                  hintText: 'House No., Street, Area, City',
+                  controller: _addressController,
                   prefixIcon: Icons.location_on_outlined,
+                  keyboardType: TextInputType.streetAddress,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Street address is required';
+                      return 'Address is required';
                     }
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
-
-                // City / State / Zip
-                CustomTextField(
-                  label: 'City, State & Zip Code',
-                  hintText: 'e.g. Islamabad, Pakistan 44000',
-                  controller: _cityStateZipController,
-                  prefixIcon: Icons.map_outlined,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'City & Zip code is required';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-
-                // Phone Number
                 CustomTextField(
                   label: 'Phone Number',
                   hintText: '+92 300 0000000',
@@ -207,32 +148,10 @@ class _AddEditAddressScreenState extends State<AddEditAddressScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
-
-                // Set as Default Address Switch
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Set as Default Delivery Address',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primaryText,
-                    ),
-                  ),
-                  activeColor: AppColors.primaryBlue,
-                  value: _isDefault,
-                  onChanged: (bool value) {
-                    setState(() {
-                      _isDefault = value;
-                    });
-                  },
-                ),
                 const SizedBox(height: 28),
-
-                // Save Button
                 PrimaryButton(
                   text: _isEditMode ? 'Save Changes' : 'Save Address',
+                  isLoading: _isSaving,
                   onPressed: _handleSave,
                 ),
               ],

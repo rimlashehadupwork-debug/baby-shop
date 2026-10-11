@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/order_model.dart';
 import '../../services/order_service.dart';
+import '../../services/product_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 import '../widgets/admin_widgets.dart';
@@ -58,18 +59,18 @@ class AdminOrderDetailsScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight:
-                            selected == status ? FontWeight.w700 : FontWeight.w500,
+                        selected == status ? FontWeight.w700 : FontWeight.w500,
                         color: AppColors.primaryText,
                       ),
                     ),
                     trailing: status == order.status
                         ? const Text(
-                            'Current',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.secondaryText,
-                            ),
-                          )
+                      'Current',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.secondaryText,
+                      ),
+                    )
                         : null,
                   ),
                 const SizedBox(height: 12),
@@ -123,7 +124,6 @@ class AdminOrderDetailsScreen extends StatelessWidget {
                   physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.all(20),
                   children: [
-                    // Summary + status
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,8 +164,6 @@ class AdminOrderDetailsScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Customer
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,8 +177,6 @@ class AdminOrderDetailsScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Items
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,8 +242,6 @@ class AdminOrderDetailsScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Delivery
                     AdminCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

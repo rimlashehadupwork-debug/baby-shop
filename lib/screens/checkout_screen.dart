@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/cart_service.dart';
+import '../services/delivery_info.dart';
+import '../services/product_service.dart';
 import '../theme/app_theme.dart';
 import 'dummy_payment_screen.dart';
 
@@ -12,10 +14,267 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _cartService = CartService.instance;
+  final _info = DeliveryInfo.instance;
 
-  String _selectedAddressName = 'Sarah Khan';
-  String _selectedAddressPhone = '+1 (555) 234-5678';
-  String _selectedAddressDetail = '123 Palm Avenue, Suite 4B, New York, NY 10001';
+  @override
+  void initState() {
+    super.initState();
+    if (_info.name.isEmpty && _info.address.isEmpty) {
+      _info.load();
+    }
+  }
+
+  void _showEditAddress() {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: _info.name);
+    final phoneController = TextEditingController(text: _info.phone);
+    final addressController = TextEditingController(text: _info.address);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+            left: 20,
+            right: 20,
+            top: 20,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Delivery Details',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryText,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(sheetContext),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: nameController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: Icon(Icons.person_outline_rounded, color: AppColors.primaryBlue),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter your name';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number',
+                      prefixIcon: Icon(Icons.phone_outlined, color: AppColors.primaryBlue),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().length < 7) {
+                        return 'Please enter a valid phone number';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: addressController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Address',
+                      alignLabelWithHint: true,
+                      prefixIcon: Icon(Icons.location_on_outlined, color: AppColors.primaryBlue),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().length < 8) {
+                        return 'Please enter your complete address';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBlue,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        if (formKey.currentState!.validate()) {
+                          _info.save(
+                            name: nameController.text,
+                            phone: phoneController.text,
+                            address: addressController.text,
+                          );
+                          Navigator.pop(sheetContext);
+                        }
+                      },
+                      child: const Text(
+                        'Save Details',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _proceedToPayment() {
+    if (_cartService.items.isEmpty) return;
+
+    if (!_info.isComplete) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please add your delivery details first'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      _showEditAddress();
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DummyPaymentScreen(
+          totalAmount: _cartService.total,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddressCard() {
+    return ListenableBuilder(
+      listenable: _info,
+      builder: (context, child) {
+        final hasInfo = _info.isComplete;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: hasInfo ? AppColors.border : AppColors.error.withValues(alpha: 0.5),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.02),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryBlue.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.location_on_rounded,
+                  color: AppColors.primaryBlue,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: hasInfo
+                    ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _info.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _info.phone,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.secondaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _info.address,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.primaryText,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                )
+                    : const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    'No delivery details yet. Tap Edit to add your name, phone and address.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.secondaryText,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: _showEditAddress,
+                child: Text(
+                  hasInfo ? 'Edit' : 'Add',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +298,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // DELIVERY ADDRESS CARD
                     const Text(
                       'Delivery Address',
                       style: TextStyle(
@@ -49,94 +307,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.border),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryBlue.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.location_on_rounded,
-                              color: AppColors.primaryBlue,
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _selectedAddressName,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.primaryText,
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.accentBlue.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Text(
-                                        'Home',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.primaryBlue,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _selectedAddressPhone,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.secondaryText,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _selectedAddressDetail,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.primaryText,
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _buildAddressCard(),
                     const SizedBox(height: 24),
 
-                    // SELECTED PRODUCTS LIST
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -160,7 +333,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Products Card List
                     Container(
                       decoration: BoxDecoration(
                         color: AppColors.surface,
@@ -239,7 +411,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // TOTAL AMOUNT BREAKDOWN SUMMARY
                     const Text(
                       'Payment Summary',
                       style: TextStyle(
@@ -336,7 +507,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ),
 
-            // Bottom Bar: Proceed to Payment Button
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -359,16 +529,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DummyPaymentScreen(
-                          totalAmount: _cartService.total,
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: _proceedToPayment,
                   icon: const Icon(Icons.payment_rounded, size: 20),
                   label: Text(
                     'Proceed to Payment (\$${_cartService.total.toStringAsFixed(2)})',

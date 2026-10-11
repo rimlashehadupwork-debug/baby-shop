@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -18,16 +19,22 @@ import 'screens/feedback_screen.dart';
 
 import 'admin/screens/admin_shell.dart';
 import 'firebase_options.dart';
-import 'package:firebase_database/firebase_database.dart';
 
 void main() async {
+  // Sabse pehle bindings
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Firebase (databaseURL firebase_options.dart se aayega)
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  FirebaseDatabase.instance.databaseURL = 'https://firebaseio.com';
+  // Supabase
+  await Supabase.initialize(
+    url: 'https://kaavtwqgyvipayvjyttu.supabase.co',
+    anonKey: 'sb_publishable_s0uKcNfdZQG_1vqhn6uFpQ_2G59uO56',
+  );
+
   runApp(const BabyShopHubApp());
 }
 
@@ -58,7 +65,6 @@ class BabyShopHubApp extends StatelessWidget {
         '/feedback': (context) => const FeedbackScreen(),
 
         // Admin panel routes
-
         '/admin': (context) => const AdminShell(),
       },
     );

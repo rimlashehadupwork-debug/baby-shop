@@ -1,88 +1,224 @@
-import 'package:flutter/material.dart';
-import '../data/mock_data.dart';
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import '../models/cart_item_model.dart';
 import '../models/order_model.dart';
+import 'delivery_info.dart';
+import 'product_service.dart';
+import 'user_session.dart';
 
 class OrderService {
   static final OrderService instance = OrderService._internal();
 
   OrderService._internal() {
-    _initMockOrders();
+    FirebaseAuth.instance.authStateChanges().listen((_) => reload());
   }
 
-  final List<OrderModel> _orders = [];
-  final ValueNotifier<List<OrderModel>> ordersNotifier = ValueNotifier([]);
+  static const String table = 'orders';
 
-  List<OrderModel> get orders => List.unmodifiable(_orders);
+  final ValueNotifier<List<OrderModel>> ordersNotifier =
+  ValueNotifier<List<OrderModel>>([]);
 
-  void _initMockOrders() {
-    if (MockData.products.length >= 4) {
-      _orders.addAll([
-        OrderModel(
-          id: '#BSH-84920',
-          date: '12 Oct 2024, 09:30 AM',
-          status: OrderStatus.outForDelivery,
-          items: [
-            CartItemModel(product: MockData.products[0], quantity: 2), // Pampers
-            CartItemModel(product: MockData.products[3], quantity: 1), // Gerber Puree
-          ],
-          subtotal: 75.97,
-          deliveryFee: 0.0,
-          total: 75.97,
-          recipientName: 'Sarah Khan',
-          phone: '+1 (555) 234-5678',
-          deliveryAddress: '123 Palm Avenue, Suite 4B, New York, NY 10001',
-          paymentMethod: 'Demo Credit Card (Visa **** 4242)',
-          estimatedDelivery: 'Today by 3:30 PM',
-        ),
-        OrderModel(
-          id: '#BSH-72109',
-          date: '10 Oct 2024, 02:15 PM',
-          status: OrderStatus.shipped,
-          items: [
-            CartItemModel(product: MockData.products[6], quantity: 1), // Carter's Onesies
-            CartItemModel(product: MockData.products[9], quantity: 1), // Fisher-Price Gym
-          ],
-          subtotal: 62.98,
-          deliveryFee: 0.0,
-          total: 62.98,
-          recipientName: 'Sarah Khan',
-          phone: '+1 (555) 234-5678',
-          deliveryAddress: '123 Palm Avenue, Suite 4B, New York, NY 10001',
-          paymentMethod: 'Cash on Delivery',
-          estimatedDelivery: 'Tomorrow, 11:00 AM',
-        ),
-        OrderModel(
-          id: '#BSH-61845',
-          date: '28 Sep 2024, 11:00 AM',
-          status: OrderStatus.delivered,
-          items: [
-            CartItemModel(product: MockData.products[12], quantity: 2), // Philips Avent Glass Bottles
-          ],
-          subtotal: 43.98,
-          deliveryFee: 4.99,
-          total: 48.97,
-          recipientName: 'Sarah Khan',
-          phone: '+1 (555) 234-5678',
-          deliveryAddress: '123 Palm Avenue, Suite 4B, New York, NY 10001',
-          paymentMethod: 'Demo Mobile Wallet',
-          estimatedDelivery: 'Delivered on 30 Sep 2024',
-        ),
-      ]);
-      ordersNotifier.value = List.unmodifiable(_orders);
+  StreamSubscription<DatabaseEvent>? _sub;
+
+  List<OrderModel> get orders => List.unmodifiable(ordersNotifier.value);
+
+  int _generation = 0;
+
+  Future<bool> _isAdmin() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+    if ((user.email ?? '').toLowerCase() == 'admin@gmail.com') return true;
+    try {
+      final snap = await FirebaseDatabase.instance
+          .ref('users/${user.uid}/role')
+          .get();
+      return snap.value?.toString() == 'admin';
+    } catch (e) {
+      return false;
     }
   }
 
-  void addOrder(OrderModel order) {
-    _orders.insert(0, order);
-    ordersNotifier.value = List.unmodifiable(_orders);
+  Future<void> _listen() async {
+    final generation = ++_generation;
+    await _sub?.cancel();
+    _sub = null;
+
+    final admin = await _isAdmin();
+    if (generation != _generation) return;
+
+    final root = FirebaseDatabase.instance.ref(table);
+    final Query query =
+    admin ? root : root.orderByChild('userId').equalTo(UserSession.key);
+
+    _sub = query.onValue.listen(
+          (event) {
+        ordersNotifier.value = _parse(event.snapshot.value);
+      },
+      onError: (Object e) {
+        debugPrint('ORDERS STREAM ERROR: $e');
+      },
+    );
   }
 
-  void updateOrderStatus(String orderId, OrderStatus status) {
-    final index = _orders.indexWhere((o) => o.id == orderId);
-    if (index != -1) {
-      _orders[index] = _orders[index].copyWith(status: status);
-      ordersNotifier.value = List.unmodifiable(_orders);
+  void reload() {
+    ordersNotifier.value = [];
+    _listen();
+  }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _two(int n) => n.toString().padLeft(2, '0');
+
+  String _formatDate(dynamic iso) {
+    final d = DateTime.tryParse((iso ?? '').toString());
+    if (d == null) return '';
+    final hour12 = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final period = d.hour >= 12 ? 'PM' : 'AM';
+    return '${d.day} ${_months[d.month - 1]} ${d.year}, ${_two(hour12)}:${_two(d.minute)} $period';
+  }
+
+  double _num(dynamic v) => double.tryParse('${v ?? 0}') ?? 0;
+
+  OrderStatus _statusFrom(dynamic v) {
+    final name = (v ?? '').toString();
+    for (final s in OrderStatus.values) {
+      if (s.name == name) return s;
+    }
+    return OrderStatus.placed;
+  }
+
+  Map<String, dynamic> _itemToMap(CartItemModel item) {
+    final p = item.product;
+    return {
+      'productId': p.id,
+      'name': p.name,
+      'brand': p.brand,
+      'categoryName': p.categoryName,
+      'imageUrl': p.imageUrl,
+      'price': p.price,
+      'quantity': item.quantity,
+    };
+  }
+
+  OrderModel _fromMap(Map<String, dynamic> m) {
+    final items = <CartItemModel>[];
+    final rawItems = m['items'];
+    final entries = rawItems is List
+        ? rawItems
+        : (rawItems is Map ? rawItems.values.toList() : <dynamic>[]);
+
+    for (final e in entries) {
+      if (e is Map) {
+        final row = e.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+        final product = <String, dynamic>{
+          'id': row['productId'],
+          'name': row['name'],
+          'brand': row['brand'],
+          'categoryName': row['categoryName'],
+          'imageUrl': row['imageUrl'],
+          'price': row['price'],
+        };
+        final qty = int.tryParse('${row['quantity'] ?? 1}') ?? 1;
+        items.add(CartItemModel(product: product, quantity: qty));
+      }
+    }
+
+    return OrderModel(
+      id: (m['orderCode'] ?? '').toString(),
+      date: _formatDate(m['createdAt']),
+      status: _statusFrom(m['status']),
+      items: items,
+      subtotal: _num(m['subtotal']),
+      deliveryFee: _num(m['deliveryFee']),
+      total: _num(m['total']),
+      recipientName: (m['recipientName'] ?? '').toString(),
+      phone: (m['phone'] ?? '').toString(),
+      deliveryAddress: (m['deliveryAddress'] ?? '').toString(),
+      paymentMethod: (m['paymentMethod'] ?? '').toString(),
+      estimatedDelivery: (m['estimatedDelivery'] ?? '').toString(),
+    );
+  }
+
+  List<OrderModel> _parse(Object? raw) {
+    final rows = <MapEntry<String, OrderModel>>[];
+    if (raw is Map) {
+      raw.forEach((key, value) {
+        if (value is Map) {
+          final m = value.map<String, dynamic>((k, v) => MapEntry(k.toString(), v));
+          rows.add(MapEntry((m['createdAt'] ?? '').toString(), _fromMap(m)));
+        }
+      });
+    }
+    rows.sort((a, b) => b.key.compareTo(a.key));
+    return rows.map((e) => e.value).toList();
+  }
+
+  Future<void> addOrder(OrderModel order) async {
+    final info = DeliveryInfo.instance;
+    final data = <String, dynamic>{
+      'userId': UserSession.key,
+      'orderCode': order.id,
+      'status': order.status.name,
+      'createdAt': DateTime.now().toIso8601String(),
+      'subtotal': order.subtotal,
+      'deliveryFee': order.deliveryFee,
+      'total': order.total,
+      'recipientName': info.name.isNotEmpty ? info.name : order.recipientName,
+      'phone': info.phone.isNotEmpty ? info.phone : order.phone,
+      'deliveryAddress':
+      info.address.isNotEmpty ? info.address : order.deliveryAddress,
+      'paymentMethod': order.paymentMethod,
+      'estimatedDelivery': order.estimatedDelivery,
+      'items': order.items.map(_itemToMap).toList(),
+    };
+
+    ordersNotifier.value = [
+      _fromMap(data),
+      ...ordersNotifier.value.where((o) => o.id != order.id),
+    ];
+
+    try {
+      final root = FirebaseDatabase.instance.ref(table);
+      final key = UserSession.safeKey(order.id.replaceAll('#', ''));
+      final ref = key.isEmpty ? root.push() : root.child(key);
+      await ref.set(data);
+    } catch (e) {
+      debugPrint('ORDER SAVE ERROR: $e');
+      return;
+    }
+
+    await _reduceStock(order.items);
+  }
+
+  Future<void> _reduceStock(List<CartItemModel> items) async {
+    for (final item in items) {
+      try {
+        await FirebaseDatabase.instance
+            .ref('products/${item.product.id}/stock')
+            .runTransaction((value) {
+          final current = int.tryParse('${value ?? 0}') ?? 0;
+          final next = current - item.quantity;
+          return Transaction.success(next < 0 ? 0 : next);
+        });
+      } catch (e) {
+        debugPrint('STOCK UPDATE ERROR: $e');
+      }
+    }
+  }
+
+  Future<void> updateOrderStatus(String orderId, OrderStatus status) async {
+    try {
+      final key = UserSession.safeKey(orderId.replaceAll('#', ''));
+      await FirebaseDatabase.instance
+          .ref('$table/$key')
+          .update({'status': status.name});
+    } catch (e) {
+      debugPrint('ORDER STATUS ERROR: $e');
     }
   }
 }
