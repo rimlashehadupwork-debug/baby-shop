@@ -2,9 +2,11 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/cart_service.dart';
+import '../services/delivery_info.dart';
 import '../services/product_service.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
+import 'product_reviews_screen.dart';
 
 class ProductDetailsScreen extends StatefulWidget {
   final ProductMap product;
@@ -36,7 +38,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final productId = widget.product.id;
     if (productId.isNotEmpty) {
       _reviewsSub = ReviewService.instance.watchReviews(productId).listen(
-            (list) {
+        (list) {
           if (!mounted || list.isEmpty) return;
           final sum = list.fold<double>(0, (s, r) => s + _reviewRating(r));
           setState(() {
@@ -148,7 +150,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             ),
           ],
         ),
-        backgroundColor: ok ? AppColors.primaryBlue : AppColors.error,
+        backgroundColor: ok ? AppColors.success : AppColors.error,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 3),
@@ -157,8 +159,25 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   void _showWriteReviewModal() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please login to write a review'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
     double selectedRating = 5.0;
-    final nameController = TextEditingController();
+    final nameController = TextEditingController(
+      text: DeliveryInfo.instance.name.isNotEmpty
+          ? DeliveryInfo.instance.name
+          : (user.displayName ?? ''),
+    );
     final commentController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -260,8 +279,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter your review feedback';
                           }
-                          if (value.trim().length < 5) {
-                            return 'Review must be at least 5 characters long';
+                          if (value.trim().length < 4) {
+                            return 'Review must be at least 4 characters long';
                           }
                           return null;
                         },
@@ -300,6 +319,130 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     ],
                   ),
                 ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRateSellerModal() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please login to rate the seller'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    double sellerRating = 5.0;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Rate Seller: ${widget.product.sellerName}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryText,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'How was your experience with this seller?',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.secondaryText,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      final starValue = (index + 1).toDouble();
+                      return IconButton(
+                        iconSize: 40,
+                        icon: Icon(
+                          starValue <= sellerRating
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
+                          color: AppColors.warning,
+                        ),
+                        onPressed: () {
+                          setModalState(() {
+                            sellerRating = starValue;
+                          });
+                        },
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBlue,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(modalContext);
+                        final ok = await ReviewService.instance.rateSeller(
+                          productId: widget.product.id,
+                          sellerName: widget.product.sellerName,
+                          rating: sellerRating,
+                        );
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              ok
+                                  ? 'Thank you for rating ${widget.product.sellerName}!'
+                                  : 'Could not submit seller rating.',
+                            ),
+                            backgroundColor: ok ? AppColors.success : AppColors.error,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Submit Seller Rating',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
           },
@@ -371,30 +514,30 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           child: images.isEmpty
                               ? _imageFallback(product)
                               : PageView.builder(
-                            itemCount: images.length,
-                            onPageChanged: (index) {
-                              setState(() {
-                                _selectedImageIndex = index;
-                              });
-                            },
-                            itemBuilder: (context, index) {
-                              return Image.network(
-                                images[index],
-                                fit: BoxFit.cover,
-                                loadingBuilder: (context, child, progress) {
-                                  if (progress == null) return child;
-                                  return const Center(
-                                    child: CircularProgressIndicator(
-                                      color: AppColors.primaryBlue,
-                                    ),
-                                  );
-                                },
-                                errorBuilder: (context, error, stackTrace) {
-                                  return _imageFallback(product);
-                                },
-                              );
-                            },
-                          ),
+                                  itemCount: images.length,
+                                  onPageChanged: (index) {
+                                    setState(() {
+                                      _selectedImageIndex = index;
+                                    });
+                                  },
+                                  itemBuilder: (context, index) {
+                                    return Image.network(
+                                      images[index],
+                                      fit: BoxFit.cover,
+                                      loadingBuilder: (context, child, progress) {
+                                        if (progress == null) return child;
+                                        return const Center(
+                                          child: CircularProgressIndicator(
+                                            color: AppColors.primaryBlue,
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return _imageFallback(product);
+                                      },
+                                    );
+                                  },
+                                ),
                         ),
                         Positioned(
                           top: 16,
@@ -424,7 +567,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: List.generate(
                                 images.length,
-                                    (index) => Container(
+                                (index) => Container(
                                   width: _selectedImageIndex == index ? 20 : 8,
                                   height: 8,
                                   margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -563,15 +706,28 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           const Divider(height: 1, color: AppColors.border),
                           const SizedBox(height: 20),
 
-                          const Text(
-                            'Seller Information',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primaryText,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Seller Information',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.primaryText,
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: _showRateSellerModal,
+                                icon: const Icon(Icons.star_outline_rounded, size: 16, color: AppColors.primaryBlue),
+                                label: const Text(
+                                  'Rate Seller',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 8),
                           _buildSellerCard(product),
                           const SizedBox(height: 24),
 
@@ -651,21 +807,49 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                   color: AppColors.primaryText,
                                 ),
                               ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size(120, 36),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  side: const BorderSide(color: AppColors.primaryBlue),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
+                              Row(
+                                children: [
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: const Size(100, 36),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      side: const BorderSide(color: AppColors.primaryBlue),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ProductReviewsScreen(product: product),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.list_alt_rounded, size: 15),
+                                    label: const Text(
+                                      'View All',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
                                   ),
-                                ),
-                                onPressed: _showWriteReviewModal,
-                                icon: const Icon(Icons.rate_review_outlined, size: 16),
-                                label: const Text(
-                                  'Write Review',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primaryBlue,
+                                      minimumSize: const Size(100, 36),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    onPressed: _showWriteReviewModal,
+                                    icon: const Icon(Icons.rate_review_outlined, size: 15),
+                                    label: const Text(
+                                      'Write Review',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -691,7 +875,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             )
                           else
                             Column(
-                              children: _reviews.map((review) {
+                              children: _reviews.take(3).map((review) {
                                 final userName = _reviewText(review, 'userName');
                                 final rating = _reviewRating(review);
                                 return Container(
@@ -775,6 +959,21 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                   ),
                                 );
                               }).toList(),
+                            ),
+                          if (_reviews.length > 3)
+                            Center(
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ProductReviewsScreen(product: product),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                                label: Text('See All ${_reviews.length} Reviews'),
+                              ),
                             ),
                         ],
                       ),

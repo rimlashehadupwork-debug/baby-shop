@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import '../services/delivery_info.dart';
 import '../theme/app_theme.dart';
@@ -23,12 +24,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _info.load();
   }
 
+  String get _currentUid => FirebaseAuth.instance.currentUser?.uid ?? '';
+
   String get _email => FirebaseAuth.instance.currentUser?.email ?? 'Guest account';
 
-  String get _name {
-    if (_info.name.trim().isNotEmpty) return _info.name;
-    final display = FirebaseAuth.instance.currentUser?.displayName ?? '';
-    return display.isNotEmpty ? display : 'Guest';
+  Future<void> _navigateToEditProfile() async {
+    final result = await Navigator.pushNamed(context, '/edit-profile');
+    if (result == true) {
+      await _info.load();
+    }
   }
 
   void _showLogoutDialog() {
@@ -137,20 +141,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showInfoSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.primaryBlue,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final uid = _currentUid;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
@@ -159,7 +153,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             padding: const EdgeInsets.only(right: 12.0),
             child: IconButton(
               icon: const Icon(Icons.notifications_none_rounded),
-              onPressed: () => _showInfoSnackBar('Notifications feature coming soon'),
+              onPressed: () => Navigator.pushNamed(context, '/notifications'),
             ),
           ),
         ],
@@ -169,93 +163,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
             children: [
-              ListenableBuilder(
-                listenable: _info,
-                builder: (context, _) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primaryBlue.withValues(alpha: 0.06),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 68,
-                          height: 68,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              colors: [
-                                AppColors.accentBlue.withValues(alpha: 0.4),
-                                AppColors.secondaryPink.withValues(alpha: 0.4),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                          child: const Center(
-                            child: CircleAvatar(
-                              radius: 31,
-                              backgroundColor: AppColors.surface,
-                              child: Icon(
-                                Icons.person_rounded,
-                                size: 36,
-                                color: AppColors.primaryBlue,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primaryText,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _email,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.secondaryText,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.edit_outlined,
-                            color: AppColors.primaryBlue,
-                            size: 20,
-                          ),
-                          onPressed: () => Navigator.pushNamed(context, '/edit-profile'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+              // User Profile Header Card fetching dynamically from users/{uid}
+              if (uid.isNotEmpty)
+                StreamBuilder<DatabaseEvent>(
+                  stream: FirebaseDatabase.instance.ref('users/$uid').onValue,
+                  builder: (context, snapshot) {
+                    String name = _info.name;
+                    String phone = _info.phone;
+                    String profilePicture = _info.profilePicture;
+                    String email = _email;
+
+                    if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
+                      final val = snapshot.data!.snapshot.value;
+                      if (val is Map) {
+                        final data = Map<String, dynamic>.from(val);
+                        final dbName = (data['name'] ?? '').toString();
+                        final dbPhone = (data['phone'] ?? '').toString();
+                        final dbPic = (data['profilePicture'] ?? data['photoUrl'] ?? '').toString();
+                        final dbEmail = (data['email'] ?? '').toString();
+
+                        if (dbName.isNotEmpty) name = dbName;
+                        if (dbPhone.isNotEmpty) phone = dbPhone;
+                        if (dbPic.isNotEmpty) profilePicture = dbPic;
+                        if (dbEmail.isNotEmpty) email = dbEmail;
+                      }
+                    }
+
+                    if (name.isEmpty) {
+                      name = FirebaseAuth.instance.currentUser?.displayName ?? 'Guest User';
+                    }
+
+                    return _buildProfileHeaderCard(
+                      name: name,
+                      email: email,
+                      phone: phone,
+                      profilePicture: profilePicture,
+                    );
+                  },
+                )
+              else
+                ListenableBuilder(
+                  listenable: _info,
+                  builder: (context, _) {
+                    return _buildProfileHeaderCard(
+                      name: _info.name.isEmpty ? 'Guest User' : _info.name,
+                      email: _email,
+                      phone: _info.phone,
+                      profilePicture: _info.profilePicture,
+                    );
+                  },
+                ),
+
               const SizedBox(height: 24),
+
+              // Member Badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
@@ -281,7 +242,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
+
               const SizedBox(height: 24),
+
+              // Menu Options Container
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
@@ -302,8 +266,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _buildMenuItem(
                         icon: Icons.person_outline_rounded,
                         title: 'Personal Information',
-                        subtitle: 'Name, email & phone number',
-                        onTap: () => Navigator.pushNamed(context, '/edit-profile'),
+                        subtitle: 'Name, email, phone & profile picture',
+                        onTap: _navigateToEditProfile,
                       ),
                       _buildDivider(),
                       _buildMenuItem(
@@ -365,7 +329,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
+
               const SizedBox(height: 28),
+
+              // Logout Button
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -391,6 +358,139 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 20),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileHeaderCard({
+    required String name,
+    required String email,
+    required String phone,
+    required String profilePicture,
+  }) {
+    final hasValidPicture = profilePicture.trim().isNotEmpty &&
+        (profilePicture.trim().startsWith('http://') || profilePicture.trim().startsWith('https://'));
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryBlue.withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Profile Picture Avatar Frame
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.accentBlue.withValues(alpha: 0.5),
+                  AppColors.secondaryPink.withValues(alpha: 0.5),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(3.0),
+              child: ClipOval(
+                child: hasValidPicture
+                    ? Image.network(
+                        profilePicture.trim(),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => _buildFallbackAvatar(),
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        },
+                      )
+                    : _buildFallbackAvatar(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          // User Information
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryText,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.secondaryText,
+                  ),
+                ),
+                if (phone.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    phone,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.primaryBlue,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // Edit Button Icon
+          IconButton(
+            icon: const Icon(
+              Icons.edit_outlined,
+              color: AppColors.primaryBlue,
+              size: 22,
+            ),
+            onPressed: _navigateToEditProfile,
+            tooltip: 'Edit Profile',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFallbackAvatar() {
+    return Container(
+      color: AppColors.surface,
+      child: const Center(
+        child: Icon(
+          Icons.person_rounded,
+          size: 38,
+          color: AppColors.primaryBlue,
         ),
       ),
     );
