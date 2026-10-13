@@ -1,7 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import '../services/google_auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/custom_text_field.dart';
@@ -21,7 +20,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isPasswordObscured = true;
   bool _isLoading = false;
-  bool _isGoogleLoading = false;
   String? _errorMessage;
 
   @override
@@ -68,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
             if (isAdmin) {
               Navigator.pushReplacementNamed(context, '/admin');
             } else {
-              Navigator.pushReplacementNamed(context, '/home');
+              Navigator.pushReplacementNamed(context, '/auth');
             }
           }
         }
@@ -99,54 +97,6 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       }
-    }
-  }
-
-  void _handleGoogleLogin() async {
-    if (_isLoading || _isGoogleLoading) return;
-
-    setState(() {
-      _errorMessage = null;
-      _isGoogleLoading = true;
-    });
-
-    try {
-      final userCredential = await GoogleAuthService.instance.signInWithGoogle();
-
-      if (!mounted) return;
-      setState(() => _isGoogleLoading = false);
-
-      if (userCredential?.user != null) {
-        final userName = userCredential!.user!.displayName ?? 'User';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(child: Text('Welcome, $userName!')),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        // AuthWrapper StreamBuilder automatically detects auth state change and routes directly to home/admin!
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isGoogleLoading = false;
-        _errorMessage = 'Google sign-in error: ${e.toString()}';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Google Sign-In failed: ${e.toString()}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
     }
   }
 
@@ -302,78 +252,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   PrimaryButton(
                     text: 'Login',
                     isLoading: _isLoading,
-                    onPressed: _isGoogleLoading ? null : _handleLogin,
+                    onPressed: _handleLogin,
                   ),
                   const SizedBox(height: 20),
-
-                  // Divider
-                  Row(
-                    children: const [
-                      Expanded(child: Divider()),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 14),
-                        child: Text(
-                          'or',
-                          style: TextStyle(
-                            color: AppColors.secondaryText,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      Expanded(child: Divider()),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Google Sign-In Button
-                  SizedBox(
-                    height: 52,
-                    child: OutlinedButton(
-                      onPressed: (_isLoading || _isGoogleLoading)
-                          ? null
-                          : _handleGoogleLogin,
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: AppColors.surface,
-                        foregroundColor: AppColors.primaryText,
-                        side: const BorderSide(color: AppColors.border),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: _isGoogleLoading
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: AppColors.primaryBlue,
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Text(
-                                  'G',
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF4285F4),
-                                  ),
-                                ),
-                                SizedBox(width: 12),
-                                Text(
-                                  'Continue with Google',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.primaryText,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
 
                   // Email OTP Sign-In Button
                   SizedBox(

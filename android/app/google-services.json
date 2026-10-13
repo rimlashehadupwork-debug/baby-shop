@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "688118988830-1nabqrauv9r01mfe6opsmpekhnr6st3d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.baby_shop_hub",
+            "certificate_hash": "1790c738c7293299abddd6ca8dbf696bcc52e04b"
+          }
+        },
+        {
           "client_id": "688118988830-9m6so6pm8slh1er7pqiirihhgvmrh92o.apps.googleusercontent.com",
           "client_type": 3
         }

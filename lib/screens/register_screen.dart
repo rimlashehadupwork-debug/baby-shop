@@ -52,6 +52,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
           // Determine role: assign 'admin' if email contains 'admin', else default to 'user'
           final String role = email.toLowerCase().contains('admin') ? 'admin' : 'user';
 
+          // Send verification email
+          try {
+            await user.sendEmailVerification();
+          } catch (e) {
+            debugPrint('Initial verification email send error: $e');
+          }
+
           // 2 & 3. Write profile data to Firebase Realtime Database
           try {
             await FirebaseDatabase.instance.ref('users/$uid').set({
@@ -89,21 +96,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   children: [
                     Icon(Icons.check_circle, color: Colors.white, size: 20),
                     SizedBox(width: 10),
-                    Expanded(child: Text('Account created successfully!')),
+                    Expanded(child: Text('Account created! Please check your email for the verification link.')),
                   ],
                 ),
                 backgroundColor: AppColors.success,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                duration: const Duration(seconds: 2),
+                duration: const Duration(seconds: 3),
               ),
             );
 
-            if (role == 'admin') {
-              Navigator.pushReplacementNamed(context, '/admin');
-            } else {
-              Navigator.pushReplacementNamed(context, '/home');
-            }
+            Navigator.pushReplacementNamed(context, '/auth');
           }
         }
       } on FirebaseAuthException catch (e) {
@@ -216,8 +219,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       if (value == null || value.trim().isEmpty) {
                         return 'Email is required';
                       }
-
-
                       final emailRegex = RegExp(r'^[\w.-]+@([\w-]+\.)+[\w-]{2,4}$');
                       if (!emailRegex.hasMatch(value.trim())) {
                         return 'Please enter a valid email address';

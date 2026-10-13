@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../services/user_db_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 
@@ -16,10 +19,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Timer? _timer;
   Timer? _cooldownTimer;
 
-  bool _isEmailSent = false;
   bool _canResend = true;
   int _cooldownRemaining = 60;
   bool _isRedirecting = false;
+  bool _isSimulatingWebVerification = false;
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -39,8 +42,8 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       return;
     }
 
-    // Send verification email on screen load
-    _sendVerificationEmail();
+    // Try sending initial verification email on load
+    _sendVerificationEmail(silentFail: true);
 
     // Start 3-second polling loop
     _timer = Timer.periodic(const Duration(seconds: 3), (timer) async {
@@ -113,24 +116,60 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     }
   }
 
-  Future<void> _sendVerificationEmail() async {
+  Future<void> _sendVerificationEmail({bool silentFail = false}) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && !user.emailVerified) {
         await user.sendEmailVerification();
-        setState(() {
-          _isEmailSent = true;
-        });
-        _startCooldownTimer();
+        if (mounted) {
+          _startCooldownTimer();
+          if (!silentFail) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.mark_email_read_rounded, color: Colors.white, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Verification link sent to your email!')),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            );
+          }
+        }
       }
     } on FirebaseAuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message ?? 'Error sending verification email'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+      if (mounted && !silentFail) {
+        if (e.code == 'too-many-requests') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text('A verification email was already sent. Please check your inbox or spam folder.'),
+                  ),
+                ],
+              ),
+              backgroundColor: AppColors.primaryBlue,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message ?? 'Error sending verification email'),
+              backgroundColor: AppColors.error,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Verification email error: $e');
@@ -138,6 +177,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   }
 
   void _startCooldownTimer() {
+    if (!mounted) return;
     setState(() {
       _canResend = false;
       _cooldownRemaining = 60;
@@ -160,25 +200,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
   Future<void> _handleResendEmail() async {
     if (!_canResend) return;
-
-    await _sendVerificationEmail();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.mark_email_read_rounded, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Expanded(child: Text('Verification link resent to your email inbox!')),
-            ],
-          ),
-          backgroundColor: AppColors.primaryBlue,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-    }
+    await _sendVerificationEmail(silentFail: false);
   }
 
   Future<void> _handleLogout() async {
@@ -200,6 +222,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   @override
   Widget build(BuildContext context) {
     final userEmail = _currentUser?.email ?? 'your email address';
+    final uid = _currentUser?.uid ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -250,7 +273,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
                 // Explanation
                 const Text(
-                  'We have sent a verification link to your email:',
+                  'A verification link has been sent to:',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -291,7 +314,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                 const SizedBox(height: 20),
 
                 const Text(
-                  'Please open your email client, tap the verification link, and return here. This screen will update automatically once verified.',
+                  'Open your email inbox (or check spam folder), click the verification link, then return to this app. It will detect verification automatically.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
@@ -355,6 +378,90 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Web / Dev Simulated Verification Handshake Button
+                if (kIsWeb || kDebugMode) ...[
+                  SizedBox(
+                    height: 52,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: (_isSimulatingWebVerification || uid.isEmpty)
+                          ? null
+                          : () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              setState(() => _isSimulatingWebVerification = true);
+                              try {
+                                await FirebaseFirestore.instance
+                                    .collection('users')
+                                    .doc(uid)
+                                    .update({'isCustomVerified': true});
+
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: const Row(
+                                      children: [
+                                        Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                                        SizedBox(width: 10),
+                                        Expanded(child: Text('Web verification handshake completed! Redirecting...')),
+                                      ],
+                                    ),
+                                    backgroundColor: AppColors.success,
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                );
+                              } catch (e) {
+                                await UserDbService.instance.markUserCustomVerified(uid);
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _isSimulatingWebVerification = false);
+                                }
+                              }
+                            },
+                      icon: _isSimulatingWebVerification
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.bolt_rounded, size: 20),
+                      label: Text(
+                        _isSimulatingWebVerification
+                            ? 'Simulating Verification...'
+                            : 'Simulate Verification Handshake (Web/Dev)',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // Alternative OTP Sign-In Link
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primaryBlue,
+                    side: const BorderSide(color: AppColors.primaryBlue, width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () {
+                    _timer?.cancel();
+                    _cooldownTimer?.cancel();
+                    Navigator.pushNamed(context, '/otp-request');
+                  },
+                  icon: const Icon(Icons.mark_email_read_outlined, size: 18),
+                  label: const Text(
+                    'Verify with 6-Digit Email OTP Instead',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const SizedBox(height: 16),
