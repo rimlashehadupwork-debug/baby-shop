@@ -23,7 +23,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void _startTimer() {
     _timer = Timer(const Duration(seconds: 2, milliseconds: 500), () {
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
+        Navigator.pushReplacementNamed(context, '/auth');
       }
     });
   }
@@ -42,7 +42,7 @@ class _SplashScreenState extends State<SplashScreen> {
         behavior: HitTestBehavior.opaque,
         onTap: () {
           _timer?.cancel();
-          Navigator.pushReplacementNamed(context, '/login');
+          Navigator.pushReplacementNamed(context, '/auth');
         },
         child: Container(
           width: double.infinity,

@@ -18,6 +18,8 @@ import 'screens/help_support_screen.dart';
 import 'screens/feedback_screen.dart';
 import 'screens/user_notifications_screen.dart';
 import 'screens/email_otp_request_screen.dart';
+import 'screens/verify_email_screen.dart';
+import 'widgets/auth_wrapper.dart';
 
 import 'admin/screens/admin_shell.dart';
 import 'firebase_options.dart';
@@ -49,11 +51,13 @@ class BabyShopHubApp extends StatelessWidget {
       title: 'BabyShopHub',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      initialRoute: '/',
+      home: const AuthWrapper(),
       routes: {
-        '/': (context) => const SplashScreen(),
+        '/auth': (context) => const AuthWrapper(),
+        '/splash': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
+        '/verify-email': (context) => const VerifyEmailScreen(),
         '/forgot-password': (context) => const ForgotPasswordScreen(),
         '/home': (context) => const HomePlaceholderScreen(),
         '/cart': (context) => const CartScreen(),

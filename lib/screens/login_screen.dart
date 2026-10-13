@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import '../services/google_auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/custom_text_field.dart';
@@ -111,127 +111,42 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // 1. Trigger Google Sign-In flow
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final userCredential = await GoogleAuthService.instance.signInWithGoogle();
 
-      if (googleUser == null) {
-        // User cancelled the sign-in
-        if (mounted) {
-          setState(() {
-            _isGoogleLoading = false;
-          });
-        }
-        return;
-      }
+      if (!mounted) return;
+      setState(() => _isGoogleLoading = false);
 
-      // 2. Obtain authentication details from Google
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // 3. Create Firebase credential
-      final OAuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // 4. Sign into Firebase with credential
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
-
-      final User? user = userCredential.user;
-
-      if (user != null) {
-        final String uid = user.uid;
-        final String userEmail = (user.email ?? googleUser.email).toLowerCase();
-        final String userName = user.displayName ?? googleUser.displayName ?? 'Google User';
-
-        // 5. Check if user's node `users/{uid}` exists in Realtime Database
-        final DatabaseReference userRef = FirebaseDatabase.instance.ref('users/$uid');
-        final DataSnapshot snapshot = await userRef.get();
-
-        String role = 'user';
-
-        if (!snapshot.exists || snapshot.value == null) {
-          // Node does not exist yet (First-time Google login)
-          role = userEmail == 'admin@gmail.com' ? 'admin' : 'user';
-
-          await userRef.set({
-            'uid': uid,
-            'name': userName,
-            'email': userEmail,
-            'role': role,
-            'createdAt': DateTime.now().toIso8601String(),
-          });
-        } else {
-          // Node exists, read existing role
-          if (snapshot.value is Map) {
-            final data = Map<String, dynamic>.from(snapshot.value as Map);
-            role = (data['role'] ?? 'user').toString();
-          }
-        }
-
-        final bool isAdmin = role == 'admin' || userEmail == 'admin@gmail.com';
-
-        if (mounted) {
-          setState(() {
-            _isGoogleLoading = false;
-          });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text('Welcome, $userName!')),
-                ],
-              ),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-
-          if (isAdmin) {
-            Navigator.pushReplacementNamed(context, '/admin');
-          } else {
-            Navigator.pushReplacementNamed(context, '/home');
-          }
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _isGoogleLoading = false;
-            _errorMessage = 'Google Sign-In failed. Please try again.';
-          });
-        }
-      }
-    } on FirebaseAuthException catch (e) {
-      if (mounted) {
-        setState(() {
-          _isGoogleLoading = false;
-          _errorMessage = e.message ?? 'Google Sign-In authentication failed.';
-        });
+      if (userCredential?.user != null) {
+        final userName = userCredential!.user!.displayName ?? 'User';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.message ?? 'Google Sign-In failed.'),
-            backgroundColor: AppColors.error,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(child: Text('Welcome, $userName!')),
+              ],
+            ),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 2),
           ),
         );
+        // AuthWrapper StreamBuilder automatically detects auth state change and routes directly to home/admin!
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isGoogleLoading = false;
-          _errorMessage = 'Google Sign-In error: ${e.toString()}';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Google Sign-In error: ${e.toString()}'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _isGoogleLoading = false;
+        _errorMessage = 'Google sign-in error: ${e.toString()}';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Google Sign-In failed: ${e.toString()}'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -447,7 +362,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 SizedBox(width: 12),
                                 Text(
-                                   'Sign in with Google',
+                                  'Continue with Google',
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
@@ -459,6 +374,33 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  // Email OTP Sign-In Button
+                  SizedBox(
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: AppColors.surface,
+                        foregroundColor: AppColors.primaryBlue,
+                        side: const BorderSide(color: AppColors.primaryBlue, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/otp-request');
+                      },
+                      icon: const Icon(Icons.mark_email_read_outlined, size: 20),
+                      label: const Text(
+                        'Sign in with Email OTP',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
 
                   // Create Account Action
                   Row(
