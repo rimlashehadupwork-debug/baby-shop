@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../admin/screens/admin_shell.dart';
 import '../screens/home_placeholder_screen.dart';
 import '../screens/login_screen.dart';
+import '../screens/suspended_screen.dart';
 import '../screens/verify_email_screen.dart';
 import '../services/user_db_service.dart';
 import '../theme/app_theme.dart';
@@ -42,7 +43,7 @@ class AuthWrapper extends StatelessWidget {
         // Ensure user document exists in Firestore
         UserDbService.instance.ensureUserDocument(user);
 
-        // 3. Firestore Document StreamBuilder checking `isCustomVerified` boolean value
+        // 3. Firestore Document StreamBuilder checking `accountStatus` and `isCustomVerified`
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
           builder: (context, docSnapshot) {
@@ -60,6 +61,13 @@ class AuthWrapper extends StatelessWidget {
             }
 
             final data = docSnapshot.data!.data();
+            final accountStatus = (data?['accountStatus'] ?? 'active').toString().toLowerCase();
+
+            // SUSPENSION LOCK: If account is suspended, render full-screen SuspendedScreen immediately
+            if (accountStatus == 'suspended') {
+              return SuspendedScreen(email: userEmail);
+            }
+
             final isCustomVerified = data?['isCustomVerified'] == true;
             final role = (data?['role'] ?? 'user').toString();
 

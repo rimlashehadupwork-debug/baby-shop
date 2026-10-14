@@ -5,6 +5,7 @@ import '../../widgets/app_logo.dart';
 import '../services/admin_auth_service.dart';
 import '../widgets/admin_widgets.dart';
 import 'admin_dashboard_screen.dart';
+import 'admin_feedback_support_screen.dart';
 import 'admin_notifications_screen.dart';
 import 'admin_orders_screen.dart';
 import 'admin_products_screen.dart';
@@ -26,6 +27,7 @@ class _AdminShellState extends State<AdminShell> {
     'User Management',
     'Order Management',
     'Notifications',
+    'Feedback & Support',
   ];
 
   @override
@@ -64,6 +66,7 @@ class _AdminShellState extends State<AdminShell> {
       const AdminUsersScreen(),
       const AdminOrdersScreen(),
       const AdminNotificationsScreen(),
+      const AdminFeedbackSupportScreen(),
     ];
 
     return ListenableBuilder(
@@ -232,6 +235,11 @@ class _AdminShellState extends State<AdminShell> {
                 icon: Icon(Icons.notifications_none_rounded),
                 selectedIcon: Icon(Icons.notifications_rounded),
                 label: 'Notifications',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.support_agent_outlined),
+                selectedIcon: Icon(Icons.support_agent_rounded),
+                label: 'Support',
               ),
             ],
           ),

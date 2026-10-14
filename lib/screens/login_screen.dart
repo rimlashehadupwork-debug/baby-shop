@@ -254,33 +254,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     isLoading: _isLoading,
                     onPressed: _handleLogin,
                   ),
-                  const SizedBox(height: 20),
-
-                  // Email OTP Sign-In Button
-                  SizedBox(
-                    height: 52,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: AppColors.surface,
-                        foregroundColor: AppColors.primaryBlue,
-                        side: const BorderSide(color: AppColors.primaryBlue, width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/otp-request');
-                      },
-                      icon: const Icon(Icons.mark_email_read_outlined, size: 20),
-                      label: const Text(
-                        'Sign in with Email OTP',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 28),
 
                   // Create Account Action

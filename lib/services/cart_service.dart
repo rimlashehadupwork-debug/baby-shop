@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
@@ -17,7 +18,7 @@ class CartService {
   static const double standardDeliveryFee = 4.99;
 
   final ValueNotifier<List<CartItemModel>> itemsNotifier =
-  ValueNotifier<List<CartItemModel>>([]);
+      ValueNotifier<List<CartItemModel>>([]);
 
   DatabaseReference get _ref =>
       FirebaseDatabase.instance.ref('$table/${UserSession.key}');
@@ -26,10 +27,10 @@ class CartService {
 
   bool get isEmpty => items.isEmpty;
 
-  int get itemCount => items.fold<int>(0, (sum, item) => sum + item.quantity);
+  int get itemCount => items.fold<int>(0, (totalCount, item) => totalCount + item.quantity);
 
   double get subtotal =>
-      items.fold<double>(0, (sum, item) => sum + item.totalPrice);
+      items.fold<double>(0, (totalSum, item) => totalSum + item.totalPrice);
 
   double get deliveryFee {
     if (items.isEmpty) return 0;
@@ -37,6 +38,27 @@ class CartService {
   }
 
   double get total => subtotal + deliveryFee;
+
+  /// Checks if the active user account is suspended.
+  /// If suspended, clears the local cart immediately and returns true.
+  Future<bool> checkSuspendedGuard() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    try {
+      final docSnap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (docSnap.exists && docSnap.data() != null) {
+        final status = (docSnap.data()?['accountStatus'] ?? 'active').toString().toLowerCase();
+        if (status == 'suspended') {
+          clearCart(); // Immediately wipe local cart
+          return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('SUSPENDED GUARD CHECK ERROR: $e');
+    }
+    return false;
+  }
 
   Map<String, dynamic> _toRow(CartItemModel item) {
     final p = item.product;
